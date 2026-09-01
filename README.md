@@ -66,10 +66,12 @@ Two pieces, and the split is deliberate:
 
 | Piece | Role |
 |---|---|
-| `hooks/grammar-gate.sh` | A `UserPromptSubmit` hook. Fires on **every** prompt, filters out anything with nothing to correct, and injects the compressed rule. |
-| `skills/gram/SKILL.md` | The full rules — what counts as an error, the output format, the edge cases. Loaded on demand. |
+| `hooks/grammar-gate.sh` | A `UserPromptSubmit` hook. Fires on **every** prompt, filters out anything with nothing to correct, and injects the rules themselves — what counts as an error, what doesn't, and the output format. |
+| `skills/gram/SKILL.md` | The reference: worked examples and the edge cases. Loaded on demand. |
 
-The hook is what makes this fire every time rather than only when the model happens to reach for the skill, and it re-injects on every turn so the rule can't fade over a long session. Filtered messages cost zero tokens.
+The hook is what makes this fire every time rather than only when the model happens to reach for the skill, and it re-injects on every turn so the rules can't fade over a long session. Filtered messages cost zero tokens.
+
+The hook used to inject a one-line summary ending in "load the skill for the full rules." That left the model free to decide the summary was enough. Measured over 40 runs on sentences with unambiguous errors, Sonnet took that latitude and called 4 out of 10 of them clean — waving through "discuss about the migration" and "explain me how the scheduler decide". A false "reads fine" is the worst thing this tool can do, because it teaches nothing and builds confidence at the same time. Carrying the rules in the injection instead of pointing at them dropped that to 0 out of 10, with no loss on Haiku, which was already catching all 10.
 
 **No CLAUDE.md edit needed.** If you've seen a hand-rolled version of this, it probably lived partly in `CLAUDE.md`. That isn't necessary and isn't done here — the hook covers it, and covers it better.
 
