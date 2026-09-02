@@ -62,24 +62,51 @@ And it won't manufacture nitpicks. "No changes" is the signal that actually matt
 
 ## How it works
 
-Two pieces, and the split is deliberate:
+The grammar check does **not** run in your main session. It runs out of process, in a
+`claude -p` subprocess on Haiku, and your session never holds the grammar rules at all.
 
 | Piece | Role |
 |---|---|
-| `hooks/grammar-gate.sh` | A `UserPromptSubmit` hook. Fires on **every** prompt, filters out anything with nothing to correct, and injects the rules themselves — what counts as an error, what doesn't, and the output format. |
-| `skills/gram/SKILL.md` | The reference: worked examples and the edge cases. Loaded on demand. |
+| `hooks/grammar-gate.sh` | A `UserPromptSubmit` hook. Fires on every prompt, filters out anything with nothing to correct, and runs the checker. |
+| `hooks/checker-prompt.txt` | The rules, as the checker subprocess's system prompt: what counts as an error, what doesn't, and the output format. |
 
-The hook is what makes this fire every time rather than only when the model happens to reach for the skill, and it re-injects on every turn so the rules can't fade over a long session. Filtered messages cost zero tokens.
+Two outcomes. On a clean message the hook injects **nothing**, so the turn costs zero
+extra tokens and your session never learns a check happened. On a message with errors it
+injects the correction plus a short note to show it and pause. Filtered messages never
+reach the subprocess at all.
 
-The hook used to inject a one-line summary ending in "load the skill for the full rules." That left the model free to decide the summary was enough. Measured over 40 runs on sentences with unambiguous errors, Sonnet took that latitude and called 4 out of 10 of them clean — waving through "discuss about the migration" and "explain me how the scheduler decide". A false "reads fine" is the worst thing this tool can do, because it teaches nothing and builds confidence at the same time. Carrying the rules in the injection instead of pointing at them dropped that to 0 out of 10, with no loss on Haiku, which was already catching all 10.
+The subprocess runs with `--safe-mode`, which is what stops the child from firing this
+same hook and spawning a checker of its own. It also has `--tools ""`, so the checker can
+only read one sentence and write one verdict.
 
-**No CLAUDE.md edit needed.** If you've seen a hand-rolled version of this, it probably lived partly in `CLAUDE.md`. That isn't necessary and isn't done here — the hook covers it, and covers it better.
+### What this costs
+
+Moving the check out of your context buys the tokens back and spends wall clock instead:
+
+| | Before (rules in context) | Now (subprocess) |
+|---|---|---|
+| Tokens per prose turn | ~300, every turn | ~0 clean, ~60 on a correction |
+| Delay before your turn starts | none | **~9–16s** |
+
+That delay is real and it is not tunable — about 4s of it is Node boot before any model
+call happens, and the rest is CLI overhead rather than inference. The tail is worse:
+runs of 54s and 71s have been observed. The hook gives up at 30s and lets the message
+through **unchecked**, so on a slow call you get no correction and no indication that one
+was skipped. That is deliberate — a gate that stalls your prompt is worse than a gate
+that occasionally misses — but it means the check is best-effort, not guaranteed.
+
+If you would rather have the old behavior, the rules-in-context version is the `main`
+branch.
 
 ## Requirements
 
-Claude Code, and nothing else.
+Claude Code, plus:
 
-The hook is pure bash with no external commands — no python, no `jq`, no dependency on what's on your `PATH`. It targets bash 3.2, so the `/bin/bash` that ships with macOS is fine.
+- **`claude` on your `PATH`** (or at `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) — the hook shells out to it.
+- **`/usr/bin/python3`** — to decode the prompt out of the hook payload. Without it the hook falls back to a naive match and skips any message it cannot decode exactly, rather than risk correcting a fragment.
+
+Earlier versions were pure bash with no external commands. That is no longer true: running
+the check in a subprocess means depending on the thing that runs it.
 
 ## Uninstall
 
