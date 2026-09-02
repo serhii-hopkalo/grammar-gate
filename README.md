@@ -60,6 +60,28 @@ Dictation noise isn't corrected either. If speech-to-text turns *bold* into "bol
 
 And it won't manufacture nitpicks. "No changes" is the signal that actually matters — it's how you learn what you already have right.
 
+## Language of the correction
+
+The correction and its reasons come back in the language you wrote in — a Ukrainian message
+gets a Ukrainian explanation.
+
+The short label before each colon is a separate matter. It follows the worked example in
+`hooks/checker-prompt.txt`, which is in English, so the default is a Ukrainian explanation
+under an English label. To move the label as well, the plugin keeps a second worked example
+per language in `hooks/examples/` and splices it in when it can tell which language you
+wrote in.
+
+Two signals decide that, and neither of them is a guess:
+
+- **the message** — whether it contains Cyrillic at all. It either does or it does not.
+- **your keyboard** — which Cyrillic language, read from the selected macOS input source.
+
+The keyboard is there because nothing tells Ukrainian from Russian on a short sentence.
+Apple's own `NLLanguageRecognizer` calls a four-word Ukrainian sentence Russian at 0.81
+confidence, and the alphabet cannot separate them at all. Your layout can, because you
+cannot type `і ї є ґ` on the Russian one. The message keeps the veto, so a Ukrainian
+layout left selected while you type English changes nothing.
+
 ## How it works
 
 The grammar check does **not** run in your main session. It runs out of process, in a
@@ -69,6 +91,7 @@ The grammar check does **not** run in your main session. It runs out of process,
 |---|---|
 | `hooks/grammar-gate.sh` | A `UserPromptSubmit` hook. Fires on every prompt, filters out anything with nothing to correct, and runs the checker. |
 | `hooks/checker-prompt.txt` | The rules, as the checker subprocess's system prompt: what counts as an error, what doesn't, and the output format. |
+| `hooks/examples/*.txt` | One extra worked example per language, spliced into that system prompt when the hook can tell which language you wrote in. Optional — with the directory absent, everything else still works. |
 
 Two outcomes. On a clean message the hook injects **nothing**, so the turn costs zero
 extra tokens and your session never learns a check happened. On a message with errors it
@@ -86,17 +109,24 @@ Moving the check out of your context buys the tokens back and spends wall clock 
 | | Before (rules in context) | Now (subprocess) |
 |---|---|---|
 | Tokens per prose turn | ~300, every turn | ~0 clean, ~60 on a correction |
-| Delay before your turn starts | none | **~9–16s** |
+| Delay before your turn starts | none | **~3–4s** |
 
-That delay is real and it is not tunable — about 4s of it is Node boot before any model
-call happens, and the rest is CLI overhead rather than inference. The tail is worse:
-runs of 54s and 71s have been observed. The hook gives up at 30s and lets the message
-through **unchecked**, so on a slow call you get no correction and no indication that one
-was skipped. That is deliberate — a gate that stalls your prompt is worse than a gate
-that occasionally misses — but it means the check is best-effort, not guaranteed.
+About 1.1s of that is process startup. The rest is a single model call.
 
-If you would rather have the old behavior, the rules-in-context version is the `main`
-branch.
+It used to be 9–43s, and almost none of that was startup either. The checker inherits the
+environment of the session that spawns it — `--safe-mode` drops configuration, not
+environment — so it ran at whatever effort level you had set and spent up to 3000 thinking
+tokens deciding whether one sentence had a typo. The hook now sets `MAX_THINKING_TOKENS=0`,
+`CLAUDE_EFFORT=low` and `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on the child explicitly.
+Verdicts did not change: across 19 checks spanning clean, agreement, article, pasted-log
+and Ukrainian input, thinking-off gave the same answer every time. On one sentence sitting
+right on the model's threshold it was the better of the two — thinking-on returned "no
+changes" three times out of three on a message with two real errors in it.
+
+The hook gives up at 12s and lets the message through **unchecked**, so on a slow call you
+get no correction and no indication that one was skipped. That is deliberate — a gate that
+stalls your prompt is worse than a gate that occasionally misses — but it means the check
+is best-effort, not guaranteed.
 
 ## Requirements
 
@@ -104,6 +134,11 @@ Claude Code, plus:
 
 - **`claude` on your `PATH`** (or at `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) — the hook shells out to it.
 - **`/usr/bin/python3`** — to decode the prompt out of the hook payload. Without it the hook falls back to a naive match and skips any message it cannot decode exactly, rather than risk correcting a fragment.
+- **`/usr/bin/defaults`** — macOS only, and optional. Read to tell which Cyrillic keyboard you are typing on. Absent, or on Linux, corrections still work; only the label before each colon stays English.
+
+The hook sets `MAX_THINKING_TOKENS=0`, `CLAUDE_EFFORT=low` and
+`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on the subprocess. A build that does not recognise
+one of them ignores it — the check is slower, not broken.
 
 Earlier versions were pure bash with no external commands. That is no longer true: running
 the check in a subprocess means depending on the thing that runs it.

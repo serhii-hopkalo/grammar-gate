@@ -13,10 +13,18 @@
 # message, and a message carrying a pasted log alongside a typo would have to be
 # re-pasted in full.
 #
-# Cost of the split: ~5s of wall clock per prose message.  Measured — and ~85% of
-# it is Node boot, not the model, so there is nothing to tune.  The prefilters
-# below are what keep that off the cheap messages, and each one now saves five
-# seconds rather than a few hundred tokens.
+# Cost of the split: ~3-4s of wall clock per prose message.  Measured with
+# --output-format json, which reports the boot/API split directly: ~1.1s of that
+# is process boot and the rest is the one API call.  An earlier note here claimed
+# boot was ~85% of a ~5s check and there was nothing left to tune.  That was
+# wrong.  The check was running 9-43s, and almost all of it was the checker
+# model thinking before it answered -- 365-3012 thinking tokens to decide
+# whether one sentence has a typo.  MAX_THINKING_TOKENS=0 below is what removed
+# it.  Boot is now the largest remaining piece, and pre-spawning the child would
+# be the way to take it; at ~1.1s of ~3.5s that has not been worth the orphan
+# process it would leave behind on turns that never arrive.
+#
+# The prefilters below still matter -- each one saves the whole 3-4s.
 #
 # ALWAYS exits 0.  A non-zero exit from UserPromptSubmit blocks the user's
 # prompt, and a broken gate must never stop someone from working.  Every failure
@@ -43,22 +51,35 @@ raw=$(cat)
 # "first line = id, rest = prompt" is an unambiguous framing.
 sid=""
 p=""
+script=""
 decoded=$(printf '%s' "$raw" | /usr/bin/python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
+p = str(d.get("prompt", ""))
+if not p.strip():
+    sys.exit(1)
+# Which alphabet they typed in -- a fact about the message, not a guess about
+# the language.  It answers one question only: is this Latin, or is it not.
+script = "cyrillic" if any("\u0400" <= c <= "\u04ff" for c in p) else ""
 sys.stdout.write(str(d.get("session_id", "")) + "\n")
-sys.stdout.write(str(d.get("prompt", "")))
+sys.stdout.write(script + "\n")
+sys.stdout.write(p)
 ' 2>/dev/null)
 
 if [ $? -eq 0 ] && [ -n "$decoded" ]; then
-  # No newline at all means the prompt was empty -- $'\n' is the framing, and
-  # ${decoded#*...} would otherwise hand back the session id as the sentence.
-  case $decoded in *$'\n'*) ;; *) exit 0 ;; esac
+  # Three lines: session id, alphabet, message.  Neither of the first two can
+  # contain a newline, so "up to the next one" frames each unambiguously.  A
+  # missing separator would hand back the session id, or the alphabet, as the
+  # sentence to check -- so bail rather than guess.
   sid=${decoded%%$'\n'*}
-  p=${decoded#*$'\n'}
+  rest=${decoded#*$'\n'}
+  [ "$rest" = "$decoded" ] && exit 0
+  script=${rest%%$'\n'*}
+  p=${rest#*$'\n'}
+  [ "$p" = "$rest" ] && exit 0
 else
   # No python3.  Fall back to a naive match and refuse to guess at escapes.
   #
@@ -121,26 +142,116 @@ fi
 rules="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/checker-prompt.txt"
 [ -f "$rules" ] || exit 0
 
+# --- a worked example in the language they wrote in -------------------------
+# The rules file says to explain in the language of the message, and its one
+# worked example labels the errors in English.  The example wins: a Ukrainian
+# message comes back with a Ukrainian explanation under an English label, and
+# no instruction appended to the prompt moves that -- tested by asking for
+# Polish on an English message, which changed nothing.  A second example in
+# their language does move it.  So this picks the example rather than arguing
+# with the one already there.
+#
+# Two signals, each used only for what it can actually know:
+#
+#   the message   whether it is Cyrillic at all.  Not a guess -- either those
+#                 code points are in there or they are not.
+#   the keyboard  WHICH Cyrillic language.  Nothing can read that off short
+#                 text: Apple NLLanguageRecognizer calls a four-word Ukrainian
+#                 sentence Russian at 0.81, and the alphabet cannot tell them
+#                 apart at all.  The layout can, because you cannot type
+#                 i-ye-yi-g on the Russian one.  Verified that this read is
+#                 live and not a stale preference: switching to Ukrainian-PC
+#                 and running it reports Ukrainian-PC straight away.
+#
+# Only Ukrainian has an example, and the keyboard is what keeps Russian from
+# getting it -- the failure this guards against is a Russian message explained
+# under Ukrainian labels.  Russian has none of its own because it does not hold:
+# with a Russian example spliced in the same way, the label came back English
+# 4 times out of 4, and 2 of 3 even after the example was made explicit about
+# never labelling in English.  Ukrainian is 4 of 4 the other way.  An example
+# that works a third of the time is worse than none.
+#
+# The message holds the veto.  A Ukrainian layout left selected while typing
+# English adds nothing, because the Cyrillic test fails first.  Anything else --
+# no defaults binary, a layout with no example file, a keyboard switched back
+# to ABC before submitting -- leaves the rules file exactly as written.
+example=""
+if [ "$script" = cyrillic ] && [ -x /usr/bin/defaults ]; then
+  layout=$(/usr/bin/defaults read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null \
+    | sed -n 's/.*KeyboardLayout Name.* = "*\([^";]*\)"*;.*/\1/p' | head -1)
+  case $layout in
+    Ukrainian*) example=uk ;;
+  esac
+fi
+
+system=$(cat "$rules")
+ex="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/examples/$example.txt"
+if [ -n "$example" ] && [ -f "$ex" ]; then
+  # Spliced in after the English example, not appended: position is why it
+  # works.  If the anchor ever moves, it goes on the end instead -- weaker,
+  # but never a mangled prompt.  Only reachable when python3 parsed the input,
+  # which is the same condition that set $script.
+  spliced=$(/usr/bin/python3 -c '
+import io, sys
+rules = io.open(sys.argv[1], encoding="utf-8").read()
+extra = io.open(sys.argv[2], encoding="utf-8").read().strip()
+anchor = "Bold the whole sentence only if the whole sentence was rewritten."
+if anchor in rules:
+    rules = rules.replace(anchor, anchor + "\n\n" + extra, 1)
+else:
+    rules = rules.rstrip() + "\n\n" + extra + "\n"
+sys.stdout.write(rules)
+' "$rules" "$ex" 2>/dev/null)
+  [ -n "$spliced" ] && system=$spliced
+fi
+
 # --- run the checker -------------------------------------------------------
 # --safe-mode      the recursion guard, and what takes this from 26s to ~5s
 # --tools ""       nothing to act with; it only ever reads one sentence
 # --no-session-persistence  don't leave a session file per keystroke
 #
+# The three env vars below are the whole latency story.  They exist because the
+# child inherits the parent session's environment: --safe-mode drops config
+# (CLAUDE.md, plugins, hooks, MCP), it does not drop env.  What the parent
+# happens to export therefore governs what this check costs.  Figures below are
+# from one machine; an env var a build does not recognise is simply ignored, so
+# setting all three is safe everywhere.
+#
+# MAX_THINKING_TOKENS=0 and CLAUDE_EFFORT=low    The parent here exports
+#   CLAUDE_EFFORT=xhigh, the checker inherited it, and it spent 365-3012 thinking
+#   tokens deciding whether one sentence had a typo: 9-43s per check, and a wrong
+#   verdict often enough to notice.  Zeroing thinking gives 3-4s and 55 output
+#   tokens, and -- across 19 checks spanning clean, agreement, article,
+#   pasted-log, clean-Ukrainian and bad-Ukrainian inputs -- the same verdict
+#   every time.  It is not a speed-for-accuracy trade.  The effort pin adds no
+#   measurable speed on top; it is there so the child's cost does not depend on
+#   what the parent session happens to be set to.
+#
+# CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1    This build has an experimental advisor
+#   tool, and where it is on the child was calling out to opus-5 for a second
+#   opinion on a grammar check: a serial round trip, ~6.8k input tokens, and
+#   ~$0.05 of the ~$0.066 such a check cost.  Off, a check costs ~$0.002.  Most
+#   installs never had the tool and lose nothing by setting this.
+#
 # Backgrounded and polled because macOS ships no `timeout` binary.
 #
-# The bound is 30s, under the 35s the harness allows the hook, so a hung child
-# can never take the script down with it and block the prompt.  It is set from
-# measurement, not taste: this check runs 9-16s in practice, with a tail that
-# hit 54s once in a dozen runs.  30s covers the normal spread and gives up on
-# the tail rather than freezing the prompt for a minute -- and giving up means
-# the message goes through unchecked, which is the correct way to fail.
+# The bound is 12s, well under the 35s the harness allows the hook, so a hung
+# child can never take the script down with it and block the prompt.  It is set
+# from measurement: with thinking off the check runs 2.9-5.2s across every input
+# tried.  12s covers that spread with room and gives up on anything past it
+# rather than freezing the prompt -- and giving up means the message goes
+# through unchecked, which is the correct way to fail.
 out="$state_dir/grammar-gate-out-$$"
-printf '%s' "$p" | GRAMMAR_GATE_CHILD=1 "$claude_bin" -p \
+printf '%s' "$p" | GRAMMAR_GATE_CHILD=1 \
+  MAX_THINKING_TOKENS=0 \
+  CLAUDE_EFFORT=low \
+  CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 \
+  "$claude_bin" -p \
   --model haiku \
   --safe-mode \
   --no-session-persistence \
   --tools "" \
-  --system-prompt "$(cat "$rules")" >"$out" 2>/dev/null &
+  --system-prompt "$system" >"$out" 2>/dev/null &
 pid=$!
 
 # The harness kills this script when it outruns the hook timeout, and that kill
@@ -152,7 +263,7 @@ trap 'kill "$pid" 2>/dev/null; rm -f "$out" 2>/dev/null' EXIT INT TERM
 
 i=0
 while kill -0 "$pid" 2>/dev/null; do
-  if [ "$i" -ge 150 ]; then
+  if [ "$i" -ge 60 ]; then
     kill "$pid" 2>/dev/null
     rm -f "$out"
     exit 0

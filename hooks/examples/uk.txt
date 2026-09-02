@@ -1,0 +1,7 @@
+The same, for a Ukrainian message -- the correction and every reason are in Ukrainian,
+the short label before each colon included:
+
+FIX
+Треба додати індекс на **таблицю** користувачів.
+
+- відмінок: після "на" потрібен знахідний відмінок -- "таблицю", а не "таблиця"
