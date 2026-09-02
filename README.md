@@ -99,8 +99,8 @@ injects the correction plus a short note to show it and pause. Filtered messages
 reach the subprocess at all.
 
 The subprocess runs with `--safe-mode`, which is what stops the child from firing this
-same hook and spawning a checker of its own. It also has `--tools ""`, so the checker can
-only read one sentence and write one verdict.
+same hook and spawning a checker of its own. It also has `--tools ""`, so the checker has
+nothing to act with: it reads your message, however long, and writes one verdict.
 
 ### What this costs
 
@@ -116,7 +116,7 @@ About 1.1s of that is process startup. The rest is a single model call.
 It used to be 9–43s, and almost none of that was startup either. The checker inherits the
 environment of the session that spawns it — `--safe-mode` drops configuration, not
 environment — so it ran at whatever effort level you had set and spent up to 3000 thinking
-tokens deciding whether one sentence had a typo. The hook now sets `MAX_THINKING_TOKENS=0`,
+tokens deciding whether a short message had a typo. The hook now sets `MAX_THINKING_TOKENS=0`,
 `CLAUDE_EFFORT=low` and `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on the child explicitly.
 Verdicts did not change: across 19 checks spanning clean, agreement, article, pasted-log
 and Ukrainian input, thinking-off gave the same answer every time. On one sentence sitting

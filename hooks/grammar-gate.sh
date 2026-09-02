@@ -19,7 +19,7 @@
 # boot was ~85% of a ~5s check and there was nothing left to tune.  That was
 # wrong.  The check was running 9-43s, and almost all of it was the checker
 # model thinking before it answered -- 365-3012 thinking tokens to decide
-# whether one sentence has a typo.  MAX_THINKING_TOKENS=0 below is what removed
+# whether a short message has a typo.  MAX_THINKING_TOKENS=0 below is what removed
 # it.  Boot is now the largest remaining piece, and pre-spawning the child would
 # be the way to take it; at ~1.1s of ~3.5s that has not been worth the orphan
 # process it would leave behind on turns that never arrive.
@@ -114,7 +114,7 @@ shopt -u nocasematch
 # --- the resend escape hatch ----------------------------------------------
 # Sending the same wording again unchanged is how the user disagrees with a
 # correction.  That used to work because the main model could see the repeat;
-# the checker is stateless and sees one sentence with no history, so it would
+# the checker is stateless and sees one message with no history, so it would
 # return FIX forever and trap them with `skip` as the only way out.
 #
 # Remember the last sentence we corrected, for exactly one turn.  Reading clears
@@ -207,7 +207,7 @@ fi
 
 # --- run the checker -------------------------------------------------------
 # --safe-mode      the recursion guard, and what takes this from 26s to ~5s
-# --tools ""       nothing to act with; it only ever reads one sentence
+# --tools ""       nothing to act with; it reads the message and writes a verdict
 # --no-session-persistence  don't leave a session file per keystroke
 #
 # The three env vars below are the whole latency story.  They exist because the
@@ -219,7 +219,7 @@ fi
 #
 # MAX_THINKING_TOKENS=0 and CLAUDE_EFFORT=low    The parent here exports
 #   CLAUDE_EFFORT=xhigh, the checker inherited it, and it spent 365-3012 thinking
-#   tokens deciding whether one sentence had a typo: 9-43s per check, and a wrong
+#   tokens deciding whether a short message had a typo: 9-43s per check, and a wrong
 #   verdict often enough to notice.  Zeroing thinking gives 3-4s and 55 output
 #   tokens, and -- across 19 checks spanning clean, agreement, article,
 #   pasted-log, clean-Ukrainian and bad-Ukrainian inputs -- the same verdict
