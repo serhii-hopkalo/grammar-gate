@@ -106,7 +106,7 @@ reach the subprocess at all.
 
 The subprocess runs with `--safe-mode`, which is what stops the child from firing this
 same hook and spawning a checker of its own. It also has `--tools ""`, so the checker has
-nothing to act with: it reads your message, however long, and writes one verdict.
+no tools at all: it cannot run a command, read a file, or change anything on your machine.
 
 ### What this costs
 
