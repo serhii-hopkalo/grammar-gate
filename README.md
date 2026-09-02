@@ -137,7 +137,7 @@ is best-effort, not guaranteed.
 Claude Code, plus:
 
 - **`claude` on your `PATH`** (or at `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) — the hook shells out to it.
-- **`/usr/bin/python3`** — to decode the prompt out of the hook payload. Without it the hook falls back to a naive match and skips any message it cannot decode exactly, rather than risk correcting a fragment.
+- **`/usr/bin/python3`** — to decode the prompt out of the hook payload and splice in the language example. Already present on any Mac with Xcode or the Command Line Tools; nothing to install. Without it the hook falls back to a naive match and skips any message it cannot decode exactly — a message containing a quotation mark goes through unchecked — rather than risk correcting a fragment.
 - **`/usr/bin/defaults`** — macOS only, and optional. Read to tell which Cyrillic keyboard you are typing on. Absent, or on Linux, corrections still work; only the label before each colon stays English.
 
 The hook sets `MAX_THINKING_TOKENS=0`, `CLAUDE_EFFORT=low` and
