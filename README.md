@@ -82,6 +82,12 @@ confidence, and the alphabet cannot separate them at all. Your layout can, becau
 cannot type `і ї є ґ` on the Russian one. The message keeps the veto, so a Ukrainian
 layout left selected while you type English changes nothing.
 
+Ukrainian is the only language with an example. Russian does not hold — with an example
+spliced in the same way, the label still comes back in English — so a Russian keyboard
+gets the English labels rather than something unreliable. To add a language, put
+`hooks/examples/<name>.txt` in place and add a case to the layout match in the hook, then
+check that it actually holds before relying on it.
+
 ## How it works
 
 The grammar check does **not** run in your main session. It runs out of process, in a
@@ -104,24 +110,22 @@ nothing to act with: it reads your message, however long, and writes one verdict
 
 ### What this costs
 
-Moving the check out of your context buys the tokens back and spends wall clock instead:
+Running the check outside your context costs tokens only when it has something to say, and
+costs wall clock either way:
 
-| | Before (rules in context) | Now (subprocess) |
-|---|---|---|
-| Tokens per prose turn | ~300, every turn | ~0 clean, ~60 on a correction |
-| Delay before your turn starts | none | **~3–4s** |
+| | |
+|---|---|
+| Tokens per prose turn | ~0 on a clean message, ~60 on a correction |
+| Delay before your turn starts | **~3–4s** |
 
 About 1.1s of that is process startup. The rest is a single model call.
 
-It used to be 9–43s, and almost none of that was startup either. The checker inherits the
-environment of the session that spawns it — `--safe-mode` drops configuration, not
-environment — so it ran at whatever effort level you had set and spent up to 3000 thinking
-tokens deciding whether a short message had a typo. The hook now sets `MAX_THINKING_TOKENS=0`,
-`CLAUDE_EFFORT=low` and `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on the child explicitly.
-Verdicts did not change: across 19 checks spanning clean, agreement, article, pasted-log
-and Ukrainian input, thinking-off gave the same answer every time. On one sentence sitting
-right on the model's threshold it was the better of the two — thinking-on returned "no
-changes" three times out of three on a message with two real errors in it.
+The checker inherits the environment of the session that spawns it — `--safe-mode` drops
+configuration, not environment — so the hook sets `MAX_THINKING_TOKENS=0`,
+`CLAUDE_EFFORT=low` and `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on it explicitly. Left to
+inherit your session's effort level, the checker burns thousands of thinking tokens
+deciding whether a short message has a typo and takes an order of magnitude longer to
+reach the same verdict.
 
 The hook gives up at 12s and lets the message through **unchecked**, so on a slow call you
 get no correction and no indication that one was skipped. That is deliberate — a gate that
@@ -139,9 +143,6 @@ Claude Code, plus:
 The hook sets `MAX_THINKING_TOKENS=0`, `CLAUDE_EFFORT=low` and
 `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on the subprocess. A build that does not recognise
 one of them ignores it — the check is slower, not broken.
-
-Earlier versions were pure bash with no external commands. That is no longer true: running
-the check in a subprocess means depending on the thing that runs it.
 
 ## Uninstall
 
