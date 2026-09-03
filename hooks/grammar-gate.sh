@@ -158,38 +158,6 @@ rules="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/checker-prompt.txt"
 [ -f "$rules" ] || exit 0
 
 # --- a worked example in the language they wrote in -------------------------
-# The rules file says to explain in the language of the message, and its one
-# worked example labels the errors in English.  The example wins: a Ukrainian
-# message comes back with a Ukrainian explanation under an English label, and
-# no instruction appended to the prompt moves that -- tested by asking for
-# Polish on an English message, which changed nothing.  A second example in
-# their language does move it.  So this picks the example rather than arguing
-# with the one already there.
-#
-# Two signals, each used only for what it can actually know:
-#
-#   the message   whether it is Cyrillic at all.  Not a guess -- either those
-#                 code points are in there or they are not.
-#   the keyboard  WHICH Cyrillic language.  Nothing can read that off short
-#                 text: Apple NLLanguageRecognizer calls a four-word Ukrainian
-#                 sentence Russian at 0.81, and the alphabet cannot tell them
-#                 apart at all.  The layout can, because you cannot type
-#                 i-ye-yi-g on the Russian one.  Verified that this read is
-#                 live and not a stale preference: switching to Ukrainian-PC
-#                 and running it reports Ukrainian-PC straight away.
-#
-# Only Ukrainian has an example, and the keyboard is what keeps Russian from
-# getting it -- the failure this guards against is a Russian message explained
-# under Ukrainian labels.  Russian has none of its own because it does not hold:
-# with a Russian example spliced in the same way, the label came back English
-# 4 times out of 4, and 2 of 3 even after the example was made explicit about
-# never labelling in English.  Ukrainian is 4 of 4 the other way.  An example
-# that works a third of the time is worse than none.
-#
-# The message holds the veto.  A Ukrainian layout left selected while typing
-# English adds nothing, because the Cyrillic test fails first.  Anything else --
-# no defaults binary, a layout with no example file, a keyboard switched back
-# to ABC before submitting -- leaves the rules file exactly as written.
 example=""
 if [ "$script" = cyrillic ] && [ -x /usr/bin/defaults ]; then
   layout=$(/usr/bin/defaults read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null \
