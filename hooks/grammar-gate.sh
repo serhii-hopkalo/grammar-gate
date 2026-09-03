@@ -7,7 +7,9 @@
 #   CLEAN -> inject nothing.  The session answers the message never knowing a
 #            check happened.  This is the common path and it costs zero tokens.
 #   FIX   -> inject the correction plus a short instruction to display it and
-#            stop.  ~60 tokens, only on turns that need it.
+#            stop.  868 characters of wrapper plus the correction, which is the
+#            message written out again -- so it scales with the message, not with
+#            the number of mistakes in it.  Only on turns that need it.
 #
 # We inject rather than block the prompt on purpose.  Blocking would erase the
 # message, and a message carrying a pasted log alongside a typo would have to be
@@ -28,9 +30,10 @@
 #
 # ALWAYS exits 0.  A non-zero exit from UserPromptSubmit blocks the user's
 # prompt, and a broken gate must never stop someone from working.  Every failure
-# path here — no `claude`, no python3, a checker that times out, errors, or
-# answers off-contract — falls through to "inject nothing" and lets the message
-# past unchecked.  Exit 0 with no stdout = no context injected.
+# path here — no `claude`, no python3, a message past the length ceiling, a
+# checker that times out, exits nonzero, or answers off-contract — falls through
+# to "inject nothing" and lets the message past unchecked.  Exit 0 with no stdout
+# = no context injected.
 #
 # Targets bash 3.2 (what macOS ships).
 
@@ -110,6 +113,18 @@ if [[ $p =~ ^(yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|thanks|t
   exit 0
 fi
 shopt -u nocasematch
+
+# A message this long is not prose with a typo in it.  It is a paste, and the
+# checker is told to write the whole message out again -- so the correction that
+# comes back is as long as the message that went in, and the hook prints it.
+# Measured: a 9,004-character correction came out as 9,868 characters of hook
+# stdout, scaling 1:1 with nothing anywhere to bound it.
+#
+# Nothing here can separate the sentence from the stack trace under it, so the
+# whole message is skipped rather than spend 3-4s and an API call correcting a
+# log.  Skipping lets it through unchecked, which is how every other failure in
+# this script behaves.
+[ ${#p} -le 4000 ] || exit 0
 
 # --- the resend escape hatch ----------------------------------------------
 # Sending the same wording again unchanged is how the user disagrees with a
@@ -272,23 +287,51 @@ while kill -0 "$pid" 2>/dev/null; do
   /bin/sleep 0.2
 done
 wait "$pid" 2>/dev/null
+rc=$?                                            # must stay immediately after wait
+
+# The child is dead and reaped, so the kill in the trap has nothing left to aim
+# at -- and a PID freed here can be handed to something else before this script
+# exits.  Drop the kill, keep the file cleanup.
+trap 'rm -f "$out" 2>/dev/null' EXIT INT TERM
+
+# A checker that failed has nothing to say about the sentence, whatever it left
+# on stdout.  Without this the exit status was read and discarded: an off-contract
+# reply that happened to start with FIX was injected on a status 7 just as
+# readily as on a clean run.
+[ "$rc" -eq 0 ] || exit 0
 
 verdict=$(cat "$out" 2>/dev/null)
 rm -f "$out"
 
 verdict=${verdict#"${verdict%%[![:space:]]*}"}
 first=${verdict%%$'\n'*}
+first=${first%"${first##*[![:space:]]}"}         # rtrim, for a trailing space or CR
 body=${verdict#*$'\n'}
 
 # Anything that is not a well-formed FIX — CLEAN, an empty reply, an error, the
 # child drifting into assistant mode — means inject nothing and let it through.
-case $first in
-  FIX*) ;;
-  *) exit 0 ;;
-esac
+#
+# The match is exact.  It used to be the glob FIX*, which passes anything that
+# merely starts with those three letters: `FIXED OFF CONTRACT` followed by
+# arbitrary text was injected verbatim, under a wrapper that tells the session to
+# display it without reworking it.  Only the literal word opens this gate.
+[ "$first" = FIX ] || exit 0
 [ "$body" != "$verdict" ] || exit 0              # FIX with no correction after it
 body=${body#"${body%%[![:space:]]*}"}
 [ -n "$body" ] || exit 0
+
+# Backstop to the length prefilter above.  That one bounds what goes in; this one
+# bounds what comes out, for a checker that ignores the contract and answers at
+# length anyway.
+#
+# It has to sit well clear of what the input ceiling can legitimately produce, or
+# it fires on real corrections instead of runaway ones.  A correction is the
+# message again plus bold markers and a reason line per change, so a 4,000-
+# character message can honestly come back at ~4,900 -- measured 4,309 on a
+# 3,900-character one.  6,000 clears that; under the 868-character wrapper the
+# whole injection stays under 7k.  Over the line the message goes through
+# unchecked, rather than carrying a correction that arrives cut in half.
+[ ${#body} -le 6000 ] || exit 0
 
 printf '%s' "$p" > "$state" 2>/dev/null          # arm the resend hatch
 
