@@ -9,7 +9,7 @@ Built for people working in a second language who want to improve it while getti
 Two phases, one flow:
 
 1. **Check the prompt.** If something is genuinely wrong, Claude shows a corrected version with only the changed words in bold, one short line per reason — then **stops**.
-2. **Answer the prompt.** If nothing is wrong, Claude says so in a few words and answers in the same reply.
+2. **Answer the prompt.** If nothing is wrong, you hear nothing. Claude answers as it always would, and never mentions that a check happened.
 
 ```
 You:    why the tests is failing after i change the config
@@ -44,13 +44,17 @@ Claude answers the message you already sent, exactly as you sent it, with no gra
 Two other escape hatches:
 
 - **Send the same wording again, unchanged.** That's how you disagree with a correction. Claude drops it and answers — no second correction, and no "reads fine" either.
-- **Nothing is gated except prose.** Slash commands, `!` bash-mode lines, one-word replies (`yes`, `ok`, `continue`, `thanks`), and empty input pass straight through. Pasted code, logs, and quoted material you're asking Claude to work *on* are left alone too — it checks your instruction, not the thing you pasted.
+- **Nothing is gated except prose.** Slash commands, `!` bash-mode lines, one-word replies (`yes`, `ok`, `continue`, `thanks`), empty input, and anything over 4,000 characters pass straight through. Pasted code, logs, and quoted material you're asking Claude to work *on* are left alone too — it checks your instruction, not the thing you pasted.
 
-## The correction is never acted on
+## The correction is display, not an instruction
 
-This is the safety property, not a stylistic choice.
+A rewrite can quietly shift meaning, and a model that acted on its own rewrite could do something you never asked for. Two different things keep that from happening, and they are not equally strong.
 
-The rewrite Claude shows you is **display only**. What it answers is always the message *you* typed. A rewrite can quietly shift meaning, and a model that acted on its own rewrite could do something you never asked for. Because it doesn't, the worst a wrong correction can do is teach a wrong lesson — visible on screen, and easy to push back on.
+**Structural.** Your message is never replaced. The hook adds the correction alongside what you typed — it has no way to edit the prompt, and the checker that produced the correction runs with no tools at all, so it cannot act on anything it reads. Whatever Claude answers, it answers from your words.
+
+**Instructed.** That Claude *shows* you the correction and *pauses* instead of answering is a request to the model, not a hard stop. It holds in practice and it is what the injected text asks for, but it is an instruction like any other. Treat the pause as reliable, not as guaranteed.
+
+So the worst a wrong correction can do is teach a wrong lesson — visible on screen, and easy to push back on.
 
 ## What's not an error
 
@@ -58,7 +62,7 @@ Informal register, lowercase, terse fragments, missing final periods, technical 
 
 Dictation noise isn't corrected either. If speech-to-text turns *bold* into "bolt" or *jargon dump* into "jogging dump", you didn't write that — a transcriber did. Correcting it teaches nothing and buries the real errors.
 
-And it won't manufacture nitpicks. "No changes" is the signal that actually matters — it's how you learn what you already have right.
+And it won't manufacture nitpicks. Silence is the signal that actually matters — a turn that goes by with no correction is how you learn what you already have right.
 
 ## Language of the correction
 
@@ -110,15 +114,23 @@ no tools at all: it cannot run a command, read a file, or change anything on you
 
 ### What this costs
 
-Running the check outside your context costs tokens only when it has something to say, and
-costs wall clock either way:
+Two separate bills, and they behave differently. Keeping the check out of your session is
+what makes the first one zero on most turns. It does nothing to the second.
 
-| | |
-|---|---|
-| Tokens per prose turn | ~0 on a clean message, ~60 on a correction |
-| Delay before your turn starts | **~3–4s** |
+| | Clean message | Correction |
+|---|---|---|
+| **Added to your session** | nothing | ~870 characters of wrapper, plus the correction itself |
+| **Spent in the checker** | the 398-word rules prompt and your message in, one word back | the same in, the correction out |
+| **Delay before your turn starts** | ~3–4s | ~3–4s |
 
-About 1.1s of that is process startup. The rest is a single model call.
+About 1.1s of that delay is process startup. The rest is a single model call. Prefiltered
+messages — slash commands, `!` lines, one-word replies — skip both bills entirely.
+
+The correction is your whole message written out again, so what it adds to your session
+scales with what you wrote, not with how many mistakes you made. That is why messages over
+**4,000 characters are not checked at all**: past that the message is a paste with a
+sentence on top, and the correction would be a copy of your stack trace. They go through
+untouched, and never reach the checker.
 
 The checker inherits the environment of the session that spawns it — `--safe-mode` drops
 configuration, not environment — so the hook sets `MAX_THINKING_TOKENS=0`,
@@ -137,7 +149,7 @@ is best-effort, not guaranteed.
 Claude Code, plus:
 
 - **`claude` on your `PATH`** (or at `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) — the hook shells out to it.
-- **`/usr/bin/python3`** — to decode the prompt out of the hook payload and splice in the language example. Already present on any Mac with Xcode or the Command Line Tools; nothing to install. Without it the hook falls back to a naive match and skips any message it cannot decode exactly — a message containing a quotation mark goes through unchecked — rather than risk correcting a fragment.
+- **`/usr/bin/python3`** — to decode the prompt out of the hook payload and splice in the language example. Already present on any Mac with Xcode or the Command Line Tools; nothing to install. Treat it as required rather than optional: without it the hook falls back to a naive match that refuses anything it cannot decode exactly, and that is most real messages. The payload is JSON, so a line break arrives as `\n` and a quote as `\"` — both are escapes the fallback will not guess at. **Every multi-line message goes through unchecked**, as does any message containing a quote, a tab, or a backslash. The alternative is correcting a fragment of what you wrote, which is worse than not checking it.
 - **`/usr/bin/defaults`** — macOS only, and optional. Read to tell which Cyrillic keyboard you are typing on. Absent, or on Linux, corrections still work; only the label before each colon stays English.
 
 The hook sets `MAX_THINKING_TOKENS=0`, `CLAUDE_EFFORT=low` and
