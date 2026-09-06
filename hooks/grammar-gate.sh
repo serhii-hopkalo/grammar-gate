@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # grammar-gate — UserPromptSubmit hook.
 #
-# The grammar check runs OUT OF PROCESS, in `claude -p --model haiku`.  The main
+# The grammar check runs OUT OF PROCESS, in `claude -p --model claude-sonnet-5`.
+# The main
 # session holds no grammar rules at all; it is a router.  Two branches:
 #
 #   CLEAN -> inject nothing.  The session answers the message never knowing a
@@ -209,6 +210,21 @@ fi
 # --tools ""       nothing to act with; it reads the message and writes a verdict
 # --no-session-persistence  don't leave a session file per keystroke
 #
+# --model claude-sonnet-5    haiku was half the price and ~0.3s quicker, and got
+#   the verdict wrong often enough not to keep.  Measured head to head on this
+#   prompt, four inputs each: haiku returned CLEAN on `So, is sonnet 5 better
+#   then haiku?`, and on the one message it did flag it invented a missing
+#   question mark the message already ended with, labelled a doubled letter as
+#   agreement, and silently corrected a third word without listing it at all.
+#   sonnet-5 caught the then/than, listed only changes it had actually made,
+#   and held the CLEAN/FIX contract on all four.  A checker that invents a
+#   nitpick teaches a wrong lesson, and one that misses a real error teaches
+#   nothing -- both cost more than the extra $0.002.
+#
+#   Pinned to the full id rather than the `sonnet` alias: the 12s bound below
+#   is tuned to one model's measured spread, and an alias moves to the next
+#   generation without notice.
+#
 # The three env vars below are the whole latency story.  They exist because the
 # child inherits the parent session's environment: --safe-mode drops config
 # (CLAUDE.md, plugins, hooks, MCP), it does not drop env.  What the parent
@@ -226,6 +242,16 @@ fi
 #   measurable speed on top; it is there so the child's cost does not depend on
 #   what the parent session happens to be set to.
 #
+#   Zeroing thinking matters more under sonnet-5 than it did under haiku, not
+#   less.  haiku does not think unless it is asked to, so the var was belt to
+#   the --safe-mode braces; sonnet-5 thinks adaptively by default and takes no
+#   token budget at all -- budget_tokens is rejected outright.  Verified it
+#   still lands: four checks on sonnet-5 came back rc=0 in 3.5-5.0s, so the var
+#   reaches the model as thinking-off and not as a rejected budget.  If that
+#   ever stops being true the check does not get slower, it goes silent -- a
+#   400 exits nonzero, a thinking run outruns the 12s bound, and both paths
+#   let the message through unchecked.
+#
 # CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1    This build has an experimental advisor
 #   tool, and where it is on the child was calling out to opus-5 for a second
 #   opinion on a grammar check: a serial round trip, ~6.8k input tokens, and
@@ -236,8 +262,8 @@ fi
 #
 # The bound is 12s, well under the 35s the harness allows the hook, so a hung
 # child can never take the script down with it and block the prompt.  It is set
-# from measurement: with thinking off the check runs 2.9-5.2s across every input
-# tried.  12s covers that spread with room and gives up on anything past it
+# from measurement: with thinking off the check runs 2.9-5.2s on haiku and
+# 3.5-5.0s on sonnet-5 across every input tried.  12s covers that spread with room and gives up on anything past it
 # rather than freezing the prompt -- and giving up means the message goes
 # through unchecked, which is the correct way to fail.
 out="$state_dir/grammar-gate-out-$$"
@@ -246,7 +272,7 @@ printf '%s' "$p" | GRAMMAR_GATE_CHILD=1 \
   CLAUDE_EFFORT=low \
   CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 \
   "$claude_bin" -p \
-  --model haiku \
+  --model claude-sonnet-5 \
   --safe-mode \
   --no-session-persistence \
   --tools "" \
