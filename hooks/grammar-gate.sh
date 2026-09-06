@@ -216,10 +216,14 @@ fi
 #   then haiku?`, and on the one message it did flag it invented a missing
 #   question mark the message already ended with, labelled a doubled letter as
 #   agreement, and silently corrected a third word without listing it at all.
-#   sonnet-5 caught the then/than, listed only changes it had actually made,
-#   and held the CLEAN/FIX contract on all four.  A checker that invents a
-#   nitpick teaches a wrong lesson, and one that misses a real error teaches
-#   nothing -- both cost more than the extra $0.002.
+#   sonnet-5 caught the then/than and held the CLEAN/FIX contract on all four.
+#   It is not clean either: it filed then/than under word order, which nothing
+#   moved, and it corrected `checkk` without bolding it in the echoed sentence
+#   -- the same unlisted change haiku made on `gramar`.  What separates them is
+#   which half they get wrong.  haiku reported an error the message did not
+#   contain and missed one it did; sonnet-5 mislabels what it correctly finds.
+#   A wrong label teaches less than a wrong verdict costs, so the swap stands
+#   -- but do not read the four runs as sonnet-5 keeping the contract cleanly.
 #
 #   Pinned to the full id rather than the `sonnet` alias: the 12s bound below
 #   is tuned to one model's measured spread, and an alias moves to the next
