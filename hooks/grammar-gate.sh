@@ -15,18 +15,34 @@
 # message, and a message carrying a pasted log alongside a typo would have to be
 # re-pasted in full.
 #
-# Cost of the split: ~3-4s of wall clock per prose message.  Measured with
-# --output-format json, which reports the boot/API split directly: ~1.1s of that
-# is process boot and the rest is the one API call.  An earlier note here claimed
-# boot was ~85% of a ~5s check and there was nothing left to tune.  That was
-# wrong.  The check was running 9-43s, and almost all of it was the checker
-# model thinking before it answered -- 365-3012 thinking tokens to decide
-# whether a short message has a typo.  MAX_THINKING_TOKENS=0 below is what removed
-# it.  Boot is now the largest remaining piece, and pre-spawning the child would
-# be the way to take it; at ~1.1s of ~3.5s that has not been worth the orphan
-# process it would leave behind on turns that never arrive.
+# Cost of the split: ~3.2s of wall clock per prose message.  Two earlier notes
+# here were wrong about where that time goes; both corrections are kept, because
+# each one looks plausible enough to be made again.
 #
-# The prefilters below still matter -- each one saves the whole 3-4s.
+# The first claimed boot was ~85% of a ~5s check and there was nothing left to
+# tune.  The check was really running 9-43s, and almost all of it was the checker
+# model thinking before it answered -- 365-3012 thinking tokens to decide whether
+# a short message has a typo.  MAX_THINKING_TOKENS=0 below is what removed it.
+#
+# The second claimed boot was then the largest remaining piece, and that
+# pre-spawning the child would be the way to take it.  Measured against claude
+# 2.1.259, interleaved 5 cold vs 5 pre-spawned: 3.16s median cold, 2.69s median
+# pre-spawned.  Pre-spawning buys 0.47s and no more, because 0.47s is the whole
+# of what starting early can reach -- Bun runtime boot and module eval.
+# Credential load, config resolution, client construction and the API call all
+# sit downstream of the CLI's getInputPrompt, i.e. after stdin resolves, so no
+# amount of starting the process sooner overlaps them.  Do not re-derive a finer
+# split from --output-format json: that breakdown says boot is ~1.1s and it does
+# not survive end-to-end timing.
+#
+# 0.47s does not pay for what a pre-spawn needs: a ~190MB child idling on every
+# assistant turn and orphaned whenever the user walks away, a Stop hook to launch
+# it, exact fd hygiene so EOF actually lands (two FIFO attempts hung past 15s on
+# a write end inherited by a forked child), and a primer byte to survive the
+# CLI's hardcoded 3s no-stdin-data timeout -- which the CLI then concatenates
+# into the very text being checked.  Not built, on purpose.
+#
+# The prefilters below still matter -- each one saves the whole 3.2s.
 #
 # ALWAYS exits 0.  A non-zero exit from UserPromptSubmit blocks the user's
 # prompt, and a broken gate must never stop someone from working.  Every failure
