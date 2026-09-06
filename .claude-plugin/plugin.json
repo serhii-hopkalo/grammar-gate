@@ -1,7 +1,7 @@
 {
   "name": "grammar-gate",
   "description": "A grammar gate that runs before every answer. Checks the prompt for grammar, punctuation, word choice, and naturalness, shows a correction only when something is genuinely wrong, then answers once the wording is settled. For people working in a second language.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "Serhii Hopkalo"
   },
