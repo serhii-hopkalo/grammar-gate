@@ -1,30 +1,11 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "grammar-gate",
-  "description": "A grammar gate for Claude Code — corrects your prompt before it answers it.",
+  "description": "A grammar pane for Claude Code: checks each prompt without blocking it.",
   "owner": {
     "name": "Serhii Hopkalo"
   },
   "plugins": [
-    {
-      "name": "grammar-gate",
-      "source": "./",
-      "description": "A grammar gate that runs before every answer. Checks the prompt for grammar, punctuation, word choice, and naturalness, shows a correction only when something is genuinely wrong, then answers once the wording is settled. For people working in a second language.",
-      "version": "0.4.0",
-      "author": {
-        "name": "Serhii Hopkalo"
-      },
-      "homepage": "https://github.com/serhii-hopkalo/grammar-gate",
-      "license": "MIT",
-      "keywords": [
-        "grammar",
-        "writing",
-        "esl",
-        "language-learning",
-        "hooks"
-      ],
-      "category": "productivity"
-    },
     {
       "name": "grammar-pane",
       "source": "./mod",

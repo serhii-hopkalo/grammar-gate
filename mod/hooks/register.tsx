@@ -26,16 +26,21 @@ const isTrivial = (body: string, original: string) => {
   return norm(head) === norm(original)
 }
 
-// Runs the check and appends its verdict. The prompt itself is never held.
-async function check($: EngineInterface, text: string, fromPane = false) {
+// Runs the check and shows its verdict. The prompt itself is never held.
+// The pane opens only for a correction or a failure and closes on a clean
+// verdict, which also hands the keyboard back to the prompt.
+async function check($: EngineInterface, text: string) {
   const you: Entry = { id: ++seq, role: 'you', text }
   const gate: Entry = { id: ++seq, role: 'gate', text: 'Checking…', status: 'checking' }
   // Each check replaces the pane: only the latest message and its verdict show.
   await update($, log, () => [you, gate])
-  void $.ui.open({ id: PANE, title: 'Grammar' })
 
   const set = (patch: Partial<Entry>) =>
     update($, log, l => l.map(x => (x.id === gate.id ? { ...x, ...patch } : x)))
+  const fail = async (text: string) => {
+    await set({ text, status: 'error' })
+    void $.ui.open({ id: PANE, title: 'Grammar' })
+  }
 
   rules ??= await $.fs.read(`${$.plugin.root}/hooks/checker-prompt.txt`)
   // `claude -p` with --system-prompt replaces the whole system prompt.
@@ -53,9 +58,9 @@ async function check($: EngineInterface, text: string, fromPane = false) {
       },
     )
   } catch {
-    return set({ text: 'Check failed (claude did not run).', status: 'error' })
+    return fail('Check failed (claude did not run).')
   }
-  if (run.exitCode !== 0) return set({ text: `Check failed (exit ${run.exitCode}).`, status: 'error' })
+  if (run.exitCode !== 0) return fail(`Check failed (exit ${run.exitCode}).`)
 
   const out = run.stdout.trim()
   const nl = out.indexOf('\n')
@@ -68,12 +73,7 @@ async function check($: EngineInterface, text: string, fromPane = false) {
     return
   }
   await set({ text: 'No changes needed.', status: 'clean' })
-  // No API hands the keys back to the prompt, but closing the pane does.
-  // Reopened without `focus`, the pane stays in view and the prompt keeps the keys.
-  if (fromPane) {
-    await $.ui.close({ id: PANE })
-    void $.ui.open({ id: PANE, title: 'Grammar' })
-  }
+  await $.ui.close({ id: PANE })
 }
 
 export const register: Register = on => {
@@ -125,7 +125,7 @@ export const register: Register = on => {
           placeholder="Retype the corrected sentence to practise"
           onSubmit={value => {
             const v = value.trim()
-            if (v) void check($, v, true)
+            if (v) void check($, v)
           }}
         />
       </Box>
