@@ -16,7 +16,24 @@
       },
       "homepage": "https://github.com/serhii-hopkalo/grammar-gate",
       "license": "MIT",
-      "keywords": ["grammar", "writing", "esl", "language-learning", "hooks"],
+      "keywords": [
+        "grammar",
+        "writing",
+        "esl",
+        "language-learning",
+        "hooks"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "grammar-pane",
+      "source": "./mod",
+      "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Serhii Hopkalo"
+      },
+      "license": "MIT",
       "category": "productivity"
     }
   ]
