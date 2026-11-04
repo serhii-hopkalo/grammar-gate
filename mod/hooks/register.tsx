@@ -11,6 +11,18 @@ const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|t
 
 let seq = 0
 let rules: string | undefined
+// While a question dialog is up the pane stays closed, and a verdict that
+// arrives then waits for the dialog to end.
+let isAsking = false
+let isOpenPending = false
+
+function showPane($: EngineInterface, focus: boolean) {
+  if (isAsking) {
+    isOpenPending = true
+    return
+  }
+  void $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) })
+}
 let ukRules: string | undefined
 
 const ANCHOR = 'Bold the whole sentence only if the whole sentence was rewritten.'
@@ -78,7 +90,7 @@ async function check($: EngineInterface, text: string) {
     update($, log, l => l.map(x => (x.id === gate.id ? { ...x, ...patch } : x)))
   const fail = async (text: string) => {
     await set({ text, status: 'error' })
-    void $.ui.open({ id: PANE, title: 'Grammar' })
+    showPane($, false)
   }
 
   const system = await rulesFor($, text)
@@ -108,10 +120,11 @@ async function check($: EngineInterface, text: string) {
   if (first === 'FIX' && body && !isTrivial(body, text)) {
     await set({ text: body, status: 'fix' })
     // Granted only while the prompt is empty, so it never takes keys mid-typing.
-    void $.ui.open({ id: PANE, title: 'Grammar', focus: true })
+    showPane($, true)
     return
   }
   await set({ text: 'No changes needed.', status: 'clean' })
+  isOpenPending = false
   await $.ui.close({ id: PANE })
 }
 
@@ -124,6 +137,26 @@ export const register: Register = on => {
   on('command.run', { command: 'grammar' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Grammar' })
     return { text: 'Grammar pane opened.' }
+  })
+
+  // A question dialog takes the keyboard from any pane, mid-typing included,
+  // and nothing lets the mod refuse it. Closing the pane first leaves no
+  // half-typed retype behind it.
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    isAsking = true
+    await $.ui.close({ id: PANE })
+    try {
+      return await next(e)
+    } finally {
+      isAsking = false
+      if (isOpenPending) {
+        isOpenPending = false
+        // The dialog still holds the keys as the tool call returns, and the
+        // pane's focus request is refused while it does. A short wait lets the
+        // keys return to the prompt first.
+        $.clock.after(300, () => showPane($, true))
+      }
+    }
   })
 
   on('prompt.submit', async ($, e, next) => {
