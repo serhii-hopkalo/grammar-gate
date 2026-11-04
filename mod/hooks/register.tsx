@@ -5,7 +5,7 @@ import type { Entry } from '../types'
 
 const PANE = 'grammar'
 const MODEL = 'claude-sonnet-5'
-const log = atom({ plugin: 'grammar-pane', key: 'log' } as const, [], { shape: 'log-1' })
+const log = atom({ plugin: 'grammar-gate', key: 'log' } as const, [], { shape: 'log-1' })
 
 const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|thanks|thx|ty|y|n)[.!]?$/i
 

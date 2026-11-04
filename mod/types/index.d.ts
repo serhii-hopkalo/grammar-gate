@@ -7,6 +7,6 @@ export type Entry = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'grammar-pane': { log: Shaped<Entry[]> }
+    'grammar-gate': { log: Shaped<Entry[]> }
   }
 }

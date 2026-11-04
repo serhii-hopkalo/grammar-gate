@@ -28,7 +28,7 @@ The pane takes the keyboard only while the main prompt is empty, so it never int
 
 ```bash
 claude plugin marketplace add serhii-hopkalo/grammar-gate
-claude plugin install grammar-pane@grammar-gate
+claude plugin install grammar-gate@grammar-gate
 ```
 
 Then run `/reload-plugins` or restart Claude Code.
@@ -60,7 +60,7 @@ Claude Code with mod support, and `claude` on your `PATH`.
 ## Uninstall
 
 ```bash
-claude plugin uninstall grammar-pane@grammar-gate
+claude plugin uninstall grammar-gate@grammar-gate
 ```
 
 ## License

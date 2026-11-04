@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "grammar-pane",
+      "name": "grammar-gate",
       "source": "./mod",
       "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane.",
       "version": "0.6.0",
