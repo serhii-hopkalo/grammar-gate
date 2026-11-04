@@ -185,7 +185,7 @@ export const register: Register = on => {
                   color={x.status === 'fix' ? 'yellow' : x.status === 'clean' ? 'green' : undefined}
                   dimColor={x.status === 'checking' || x.status === 'error'}
                 >
-                  {x.text}
+                  {x.text.split('**').map((part, i) => (i % 2 ? <Text bold color="red">{part}</Text> : part))}
                 </Text>
               </Box>
             ),
