@@ -1,1 +1,1 @@
-{ "name": "grammar-gate", "version": "0.6.0", "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane", "types": "./types/index.d.ts" }
+{ "name": "grammar-gate", "version": "0.6.1", "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane", "types": "./types/index.d.ts" }
