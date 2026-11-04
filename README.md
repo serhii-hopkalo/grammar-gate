@@ -39,7 +39,7 @@ Slash commands, `!` lines, one-word replies (`yes`, `ok`, `skip`, `thanks`), and
 
 Not errors: informal register, lowercase, terse fragments, missing final periods, technical shorthand, full forms where a contraction would also work, and dictation slips. Pasted code, logs and quoted material are left alone. The checker reports nothing rather than invent a nitpick, and a correction that only changes capitalization or the final punctuation is dropped.
 
-Corrections and reasons come back in the language you wrote in.
+Corrections and reasons come back in the language you wrote in. The short label before each colon follows an English example by default. For a Cyrillic message typed on a Ukrainian macOS keyboard, the mod adds a Ukrainian example from `mod/hooks/examples/uk.txt`, so the label comes back in Ukrainian too. The keyboard decides because nothing tells Ukrainian from Russian on a short sentence.
 
 ## How it works
 
@@ -47,6 +47,7 @@ Corrections and reasons come back in the language you wrote in.
 |---|---|
 | `mod/hooks/register.tsx` | The mod. A `prompt.submit` hook starts the check without waiting on it, and a `Pane` render draws the result and the retype box. |
 | `mod/hooks/checker-prompt.txt` | The checker's rules: what counts as an error, what does not, and the output format. |
+| `mod/hooks/examples/uk.txt` | A Ukrainian worked example, added to the rules for a Cyrillic message on a Ukrainian keyboard. |
 
 The check runs `claude -p --system-prompt <rules>` with `--safe-mode`, `--tools ""`, no session file, low effort and no thinking. It uses `claude -p` rather than the mod API's `$.model.complete` because the latter keeps Claude Code's own system prompt ahead of the rules, and with it the checker misses plain typos.
 

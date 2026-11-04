@@ -11,6 +11,45 @@ const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|t
 
 let seq = 0
 let rules: string | undefined
+let ukRules: string | undefined
+
+const ANCHOR = 'Bold the whole sentence only if the whole sentence was rewritten.'
+const CYRILLIC = /[\u0400-\u04ff]/
+
+// Nothing tells Ukrainian from Russian on a short sentence, so the selected
+// macOS keyboard decides. The message keeps the veto: a Ukrainian layout left
+// on while typing English changes nothing. Any failure falls back to the base
+// rules, which still answer in the message's language under English labels.
+async function isUkrainianLayout($: EngineInterface) {
+  try {
+    const r = await $.process.run(
+      ['/usr/bin/defaults', 'read', 'com.apple.HIToolbox', 'AppleSelectedInputSources'],
+      { timeoutMs: 2000 },
+    )
+    const m = /KeyboardLayout Name.*= "?([^";]*)"?;/.exec(r.stdout)
+    return r.exitCode === 0 && !!m?.[1]?.startsWith('Ukrainian')
+  } catch {
+    return false
+  }
+}
+
+// The base rules with the Ukrainian worked example spliced in after ANCHOR,
+// so the label before each colon comes back in Ukrainian too.
+async function rulesFor($: EngineInterface, text: string): Promise<string> {
+  const base = (rules ??= await $.fs.read(`${$.plugin.root}/hooks/checker-prompt.txt`))
+  if (!CYRILLIC.test(text) || !(await isUkrainianLayout($))) return base
+  if (ukRules === undefined) {
+    try {
+      const extra = (await $.fs.read(`${$.plugin.root}/hooks/examples/uk.txt`)).trim()
+      ukRules = base.includes(ANCHOR)
+        ? base.replace(ANCHOR, `${ANCHOR}\n\n${extra}`)
+        : `${base.trimEnd()}\n\n${extra}\n`
+    } catch {
+      ukRules = base
+    }
+  }
+  return ukRules
+}
 
 const norm = (s: string) =>
   s.replace(/\*\*/g, '').toLowerCase().trim().replace(/[\s.?!…]+$/, '').replace(/\s+/g, ' ')
@@ -42,7 +81,7 @@ async function check($: EngineInterface, text: string) {
     void $.ui.open({ id: PANE, title: 'Grammar' })
   }
 
-  rules ??= await $.fs.read(`${$.plugin.root}/hooks/checker-prompt.txt`)
+  const system = await rulesFor($, text)
   // `claude -p` with --system-prompt replaces the whole system prompt.
   // $.model.complete keeps the CLI identity block, and with it the checker
   // misses plain typos ("checck" comes back CLEAN).
@@ -50,7 +89,7 @@ async function check($: EngineInterface, text: string) {
   try {
     run = await $.process.run(
       ['claude', '-p', '--model', MODEL, '--safe-mode', '--no-session-persistence',
-        '--tools', '', '--effort', 'low', '--system-prompt', rules],
+        '--tools', '', '--effort', 'low', '--system-prompt', system],
       {
         stdin: text,
         timeoutMs: 30000,
