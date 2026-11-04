@@ -27,10 +27,11 @@ const isTrivial = (body: string, original: string) => {
 }
 
 // Runs the check and appends its verdict. The prompt itself is never held.
-async function check($: EngineInterface, text: string) {
+async function check($: EngineInterface, text: string, fromPane = false) {
   const you: Entry = { id: ++seq, role: 'you', text }
   const gate: Entry = { id: ++seq, role: 'gate', text: 'Checking…', status: 'checking' }
-  await update($, log, l => [...l, you, gate].slice(-60))
+  // Each check replaces the pane: only the latest message and its verdict show.
+  await update($, log, () => [you, gate])
   void $.ui.open({ id: PANE, title: 'Grammar' })
 
   const set = (patch: Partial<Entry>) =>
@@ -61,9 +62,18 @@ async function check($: EngineInterface, text: string) {
   const first = (nl < 0 ? out : out.slice(0, nl)).trim()
   const body = nl < 0 ? '' : out.slice(nl + 1).trim()
   if (first === 'FIX' && body && !isTrivial(body, text)) {
-    return set({ text: body, status: 'fix' })
+    await set({ text: body, status: 'fix' })
+    // Granted only while the prompt is empty, so it never takes keys mid-typing.
+    void $.ui.open({ id: PANE, title: 'Grammar', focus: true })
+    return
   }
-  return set({ text: 'No changes needed.', status: 'clean' })
+  await set({ text: 'No changes needed.', status: 'clean' })
+  // No API hands the keys back to the prompt, but closing the pane does.
+  // Reopened without `focus`, the pane stays in view and the prompt keeps the keys.
+  if (fromPane) {
+    await $.ui.close({ id: PANE })
+    void $.ui.open({ id: PANE, title: 'Grammar' })
+  }
 }
 
 export const register: Register = on => {
@@ -111,10 +121,11 @@ export const register: Register = on => {
         </Box>
         <Input
           key="retype"
+          autoFocus
           placeholder="Retype the corrected sentence to practise"
           onSubmit={value => {
             const v = value.trim()
-            if (v) void check($, v)
+            if (v) void check($, v, true)
           }}
         />
       </Box>
