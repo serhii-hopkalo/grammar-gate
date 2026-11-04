@@ -1,1 +1,1 @@
-{ "name": "grammar-pane", "version": "0.1.0", "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane", "types": "./types/index.d.ts" }
+{ "name": "grammar-pane", "version": "0.2.0", "description": "Checks each prompt's grammar without blocking it and shows corrections in a side pane", "types": "./types/index.d.ts" }
