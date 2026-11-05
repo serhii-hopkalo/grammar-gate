@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Entry } from '../types'
+import { initial, step } from './check'
+import type { Action, Event, State, Verdict } from './check'
 
 const PANE = 'grammar'
 const MODEL = 'claude-sonnet-5'
@@ -9,24 +10,52 @@ const log = atom({ plugin: 'grammar-gate', key: 'log' } as const, [], { shape: '
 
 const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|thanks|thx|ty|y|n)[.!]?$/i
 
-let seq = 0
 let rules: string | undefined
-// While a question dialog is up the pane stays closed, and a verdict that
-// arrives then waits for the dialog to end.
-let isAsking = false
-let isOpenPending = false
+let state: State = initial
+// Actions apply one dispatch at a time, in order, so a close never overtakes
+// the open before it.
+let queue: Promise<void> = Promise.resolve()
 
-function showPane($: EngineInterface, focus: boolean) {
-  if (isAsking) {
-    isOpenPending = true
-    return
-  }
-  void $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) }).then(() => {
-    // The Input's autoFocus is not honoured everywhere, so the cursor is put in
-    // the retype box by hand. Denied, harmlessly, when the pane has no keyboard.
-    if (focus) void $.ui.focus({ requestId: PANE, key: 'retype' })
-  })
+function dispatch($: EngineInterface, e: Event) {
+  const r = step(state, e)
+  state = r.state
+  queue = queue.then(() => apply($, r.actions)).catch(() => {})
+  return queue
 }
+
+async function apply($: EngineInterface, actions: Action[]) {
+  for (const a of actions) {
+    switch (a.type) {
+      case 'writeLog':
+        await update($, log, () => a.log)
+        break
+      case 'runFull':
+        void runFull($, a.text).then(verdict => dispatch($, { type: 'fullAnswer', id: a.id, verdict }))
+        break
+      case 'runFast':
+        void isClearlyClean($, a.text).then(isClean => dispatch($, { type: 'fastAnswer', id: a.id, isClean }))
+        break
+      case 'close':
+        await $.ui.close({ id: PANE })
+        break
+      case 'open':
+        if (a.delayMs) $.clock.after(a.delayMs, () => void openPane($, a.focus))
+        else await openPane($, a.focus)
+        break
+    }
+  }
+}
+
+async function openPane($: EngineInterface, focus: boolean) {
+  await $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) })
+  if (!focus) return
+  // Reads the key now, so it is ready before the sentence is retyped.
+  void jevKey($)
+  // The Input's autoFocus is not honoured everywhere, so the cursor is put in
+  // the retype box by hand. Denied, harmlessly, when the pane has no keyboard.
+  void $.ui.focus({ requestId: PANE, key: 'retype' })
+}
+
 let ukRules: string | undefined
 
 const ANCHOR = 'Bold the whole sentence only if the whole sentence was rewritten.'
@@ -139,40 +168,8 @@ const isTrivial = (body: string, original: string) => {
   return norm(head) === norm(original)
 }
 
-// Runs the check and shows its verdict. The prompt itself is never held.
-// The pane opens only for a correction or a failure and closes on a clean
-// verdict, which also hands the keyboard back to the prompt.
-async function check($: EngineInterface, text: string, isRetype = false) {
-  const you: Entry = { id: ++seq, role: 'you', text }
-  const gate: Entry = { id: ++seq, role: 'gate', text: 'Checking…', status: 'checking' }
-  // Each check replaces the pane: only the latest message and its verdict show.
-  await update($, log, () => [you, gate])
-
-  const set = (patch: Partial<Entry>) =>
-    update($, log, l => l.map(x => (x.id === gate.id ? { ...x, ...patch } : x)))
-  // A Jev verdict that arrives after claude -p has answered is dropped.
-  let isAnswered = false
-  // claude -p still runs after Jev closes the pane: a correction from it
-  // reopens the pane, and a failure stays silent.
-  let isJevClean = false
-  const fail = async (text: string) => {
-    isAnswered = true
-    if (isJevClean) return
-    await set({ text, status: 'error' })
-    showPane($, false)
-  }
-
-  if (isRetype) {
-    void isClearlyClean($, text).then(async isClean => {
-      if (!isClean || isAnswered) return
-      isJevClean = true
-      await set({ text: 'No changes needed.', status: 'clean' })
-      if (isAnswered) return
-      isOpenPending = false
-      await $.ui.close({ id: PANE })
-    })
-  }
-
+// Runs claude -p and turns its output into a Verdict.
+async function runFull($: EngineInterface, text: string): Promise<Verdict> {
   const system = await rulesFor($, text)
   // `claude -p` with --system-prompt replaces the whole system prompt.
   // $.model.complete keeps the CLI identity block, and with it the checker
@@ -196,26 +193,16 @@ async function check($: EngineInterface, text: string, isRetype = false) {
       },
     )
   } catch {
-    return fail('Check failed (claude did not run).')
+    return { kind: 'failed', text: 'Check failed (claude did not run).' }
   }
-  isAnswered = true
-  if (run.exitCode !== 0) return fail(`Check failed (exit ${run.exitCode}).`)
+  if (run.exitCode !== 0) return { kind: 'failed', text: `Check failed (exit ${run.exitCode}).` }
 
   const out = run.stdout.trim()
   const nl = out.indexOf('\n')
   const first = (nl < 0 ? out : out.slice(0, nl)).trim()
   const body = nl < 0 ? '' : out.slice(nl + 1).trim()
-  if (first === 'FIX' && body && !isTrivial(body, text)) {
-    await set({ text: body, status: 'fix' })
-    // Reads the key now, so it is ready before the sentence is retyped.
-    void jevKey($)
-    // Granted only while the prompt is empty, so it never takes keys mid-typing.
-    showPane($, true)
-    return
-  }
-  await set({ text: 'No changes needed.', status: 'clean' })
-  isOpenPending = false
-  await $.ui.close({ id: PANE })
+  if (first === 'FIX' && body && !isTrivial(body, text)) return { kind: 'fix', body }
+  return { kind: 'clean' }
 }
 
 export const register: Register = on => {
@@ -225,34 +212,23 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'grammar' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Grammar' })
+    await dispatch($, { type: 'manualOpen' })
     return { text: 'Grammar pane opened.' }
   })
 
-  // A question dialog takes the keyboard from any pane, mid-typing included,
-  // and nothing lets the mod refuse it. Closing the pane first leaves no
-  // half-typed retype behind it.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    isAsking = true
-    await $.ui.close({ id: PANE })
+    await dispatch($, { type: 'dialogStart' })
     try {
       return await next(e)
     } finally {
-      isAsking = false
-      if (isOpenPending) {
-        isOpenPending = false
-        // The dialog still holds the keys as the tool call returns, and the
-        // pane's focus request is refused while it does. A short wait lets the
-        // keys return to the prompt first.
-        $.clock.after(300, () => showPane($, true))
-      }
+      void dispatch($, { type: 'dialogEnd' })
     }
   })
 
   on('prompt.submit', async ($, e, next) => {
     const p = e.text.trim()
     if (!e.command && p && !p.startsWith('!') && !SKIP.test(p) && p.length <= 4000) {
-      void check($, p)
+      void dispatch($, { type: 'submit', text: p })
     }
     return next(e)
   })
@@ -299,7 +275,7 @@ export const register: Register = on => {
             placeholder="Retype the corrected sentence to practise"
             onSubmit={value => {
               const v = value.trim()
-              if (v) void check($, v, true)
+              if (v) void dispatch($, { type: 'retype', text: v })
             }}
           />
         </Box>
