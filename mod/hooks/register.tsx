@@ -175,17 +175,18 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box flexDirection="column" flexGrow={1}>
-          {list.length === 0 && <Text dimColor>Send a prompt to check it.</Text>}
+          {list.length === 0 && <Text size="title" dimColor>Send a prompt to check it.</Text>}
           {list.slice(-room).map(x =>
             x.role === 'you' ? (
-              <Text bold>{'> ' + x.text}</Text>
+              <Text size="title" bold>{'> ' + x.text}</Text>
             ) : (
               <Box marginBottom={1}>
                 <Text
-                  color={x.status === 'fix' ? 'yellow' : x.status === 'clean' ? 'green' : undefined}
+                  size="title"
+                  color={x.status === 'fix' ? 'text' : x.status === 'clean' ? 'success' : undefined}
                   dimColor={x.status === 'checking' || x.status === 'error'}
                 >
-                  {x.text.split('**').map((part, i) => (i % 2 ? <Text bold color="red">{part}</Text> : part))}
+                  {x.text.split('**').map((part, i) => (i % 2 ? <Text bold color="error">{part}</Text> : part))}
                 </Text>
               </Box>
             ),
