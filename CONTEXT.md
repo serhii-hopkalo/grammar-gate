@@ -2,7 +2,7 @@
 
 **Check**: one grammar check of one message, from submit (or retype) until its Verdict is shown. Each Check has an id. Only the latest Check may change the pane or the log. Answers for an older Check are dropped.
 
-**Verdict**: the result of a Check. One of `clean`, `fix` (a corrected sentence with the changed words in `**bold**`), or `failed` (the checker did not answer).
+**Verdict**: the result of a Check. One of `clean`, `fix` (a corrected sentence with the changed words in `**bold**`), or `failed` (the checker did not answer, or answered outside the CLEAN/FIX format).
 
 **Retype**: the user typing the corrected sentence back into the pane to practise. A Retype starts a new Check.
 

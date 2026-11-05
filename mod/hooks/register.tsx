@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { initial, step } from './check'
 import type { Action, Event, State, Verdict } from './check'
+import { readVerdict } from './verdict'
 
 const PANE = 'grammar'
 const MODEL = 'claude-sonnet-5'
@@ -154,21 +155,7 @@ async function isClearlyClean($: EngineInterface, text: string) {
   }
 }
 
-const norm = (s: string) =>
-  s.replace(/\*\*/g, '').toLowerCase().trim().replace(/[\s.?!…]+$/, '').replace(/\s+/g, ' ')
-
-// Drops a correction that only re-cases words or changes ending punctuation.
-const isTrivial = (body: string, original: string) => {
-  const cut = body.lastIndexOf('\n\n')
-  let head = body
-  if (cut > 0) {
-    const tail = body.slice(cut + 2).trim().split('\n')
-    if (tail.every(l => l.trimStart().startsWith('- '))) head = body.slice(0, cut)
-  }
-  return norm(head) === norm(original)
-}
-
-// Runs claude -p and turns its output into a Verdict.
+// Runs the Full check.
 async function runFull($: EngineInterface, text: string): Promise<Verdict> {
   const system = await rulesFor($, text)
   // `claude -p` with --system-prompt replaces the whole system prompt.
@@ -195,14 +182,7 @@ async function runFull($: EngineInterface, text: string): Promise<Verdict> {
   } catch {
     return { kind: 'failed', text: 'Check failed (claude did not run).' }
   }
-  if (run.exitCode !== 0) return { kind: 'failed', text: `Check failed (exit ${run.exitCode}).` }
-
-  const out = run.stdout.trim()
-  const nl = out.indexOf('\n')
-  const first = (nl < 0 ? out : out.slice(0, nl)).trim()
-  const body = nl < 0 ? '' : out.slice(nl + 1).trim()
-  if (first === 'FIX' && body && !isTrivial(body, text)) return { kind: 'fix', body }
-  return { kind: 'clean' }
+  return readVerdict(run.exitCode, run.stdout, text)
 }
 
 export const register: Register = on => {

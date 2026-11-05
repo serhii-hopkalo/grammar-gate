@@ -53,8 +53,9 @@ Also the parser should skip comments: each one needs a closing marker
 Should we rename the table? or drop it
 
 Otherwise, output the word FIX on its own first line, then their whole message again
-from start to finish with only the changed words in bold, then a blank line, then one
-short line per change naming the issue in plain words. Keep their capitalization and
+from start to finish with every change applied and only the changed words in bold, then
+a blank line, then one short line per change naming the issue in plain words. Every
+change a line names must appear, in bold, in the message above it. Keep their capitalization and
 their ending as they typed them:
 
 FIX
