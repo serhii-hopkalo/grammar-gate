@@ -6,8 +6,10 @@
 
 **Retype**: the user typing the corrected sentence back into the pane to practise. A Retype starts a new Check.
 
-**Fast check**: the Jev call made only for a Retype. It can only say "clearly clean" or nothing. It can close the pane early but never writes a `fix`.
+**Skip**: a message that gets no Check: a slash command, a `!` shell escape, a short reply such as "ok" or "thanks", more than 4000 characters, or Enter on an empty retype box. A Skip still ends the previous Check and closes the pane.
 
-**Full check**: the `claude -p` call made for every Check. Its Verdict wins over the Fast check, except that a `failed` Full check after a clean Fast check stays silent.
+**Fast check**: the Jev call that starts every Check. It returns only the probability of an error. At 0.1 or lower it gates the Check: the Verdict is `clean` and the Full check does not run. Up to 0.3 it closes the pane early and the Full check still runs. It never writes a `fix`.
+
+**Full check**: the `claude -p` call made for every Check the Fast check does not gate. Its Verdict wins over the Fast check, except that a `failed` Full check after a clean Fast check stays silent.
 
 **Dialog pause**: the time a question dialog (AskUserQuestion) is on screen. The pane is closed for its whole length. A `fix` or `failed` Verdict that arrives during the pause opens the pane 300ms after the dialog ends. Only a `fix` takes focus. A Verdict shown before the pause is not restored.

@@ -9,8 +9,6 @@ const PANE = 'grammar'
 const MODEL = 'claude-sonnet-5'
 const log = atom({ plugin: 'grammar-gate', key: 'log' } as const, [], { shape: 'log-1' })
 
-const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|thanks|thx|ty|y|n)[.!]?$/i
-
 let rules: string | undefined
 let state: State = initial
 // Actions apply one dispatch at a time, in order, so a close never overtakes
@@ -34,7 +32,7 @@ async function apply($: EngineInterface, actions: Action[]) {
         void runFull($, a.text).then(verdict => dispatch($, { type: 'fullAnswer', id: a.id, verdict }))
         break
       case 'runFast':
-        void isClearlyClean($, a.text).then(isClean => dispatch($, { type: 'fastAnswer', id: a.id, isClean }))
+        void errorProbability($, a.text).then(p => dispatch($, { type: 'fastAnswer', id: a.id, p }))
         break
       case 'close':
         await $.ui.close({ id: PANE })
@@ -50,8 +48,6 @@ async function apply($: EngineInterface, actions: Action[]) {
 async function openPane($: EngineInterface, focus: boolean) {
   await $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) })
   if (!focus) return
-  // Reads the key now, so it is ready before the sentence is retyped.
-  void jevKey($)
   // The Input's autoFocus is not honoured everywhere, so the cursor is put in
   // the retype box by hand. Denied, harmlessly, when the pane has no keyboard.
   void $.ui.focus({ requestId: PANE, key: 'retype' })
@@ -97,11 +93,11 @@ async function rulesFor($: EngineInterface, text: string): Promise<string> {
   return ukRules
 }
 
-// A retyped sentence also goes to Jev, which answers well before claude -p.
-// Jev returns only the probability of an error, so it can close the pane on a
-// clearly clean retype but never write a correction.
+// Jev runs the Fast check. It returns only the probability of an error, so it
+// can rule a message clean but never write a correction.
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
-const JEV_CLEAN_MAX = 0.3
+// $.http.fetch has no timeout, and the Full check waits on this answer.
+const JEV_TIMEOUT_MS = 1000
 const HAS_ERROR = {
   type: 'noul',
   instructions:
@@ -132,11 +128,16 @@ function jevKey($: EngineInterface) {
   })())
 }
 
-// True only when Jev is confident the text has no error. Any failure, a
-// missing key included, answers false and leaves the verdict to claude -p.
-async function isClearlyClean($: EngineInterface, text: string) {
+// Jev's probability that the text has an error. Any failure, a missing key or
+// a slow answer included, gives undefined and leaves the verdict to claude -p.
+function errorProbability($: EngineInterface, text: string): Promise<number | undefined> {
+  const timeout = new Promise<undefined>(resolve => $.clock.after(JEV_TIMEOUT_MS, () => resolve(undefined)))
+  return Promise.race([askJev($, text), timeout])
+}
+
+async function askJev($: EngineInterface, text: string) {
   const key = await jevKey($)
-  if (!key) return false
+  if (!key) return undefined
   try {
     const r = await $.http.fetch(JEV_URL, {
       method: 'POST',
@@ -147,11 +148,11 @@ async function isClearlyClean($: EngineInterface, text: string) {
         questions: { has_error: HAS_ERROR },
       }),
     })
-    if (!r.ok) return false
+    if (!r.ok) return undefined
     const p = JSON.parse(r.text)?.answers?.has_error?.noul
-    return typeof p === 'number' && p <= JEV_CLEAN_MAX
+    return typeof p === 'number' ? p : undefined
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -188,6 +189,8 @@ async function runFull($: EngineInterface, text: string): Promise<Verdict> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'grammar', description: 'Open the grammar pane' })
+    // The key lookup can start a shell, so it is not left to the first prompt.
+    void jevKey($)
     return next(e)
   })
 
@@ -206,10 +209,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const p = e.text.trim()
-    if (!e.command && p && !p.startsWith('!') && !SKIP.test(p) && p.length <= 4000) {
-      void dispatch($, { type: 'submit', text: p })
-    }
+    void dispatch($, { type: 'submit', text: e.text, isCommand: !!e.command })
     return next(e)
   })
 
@@ -254,8 +254,7 @@ export const register: Register = on => {
             rows={3}
             placeholder="Retype the corrected sentence to practise"
             onSubmit={value => {
-              const v = value.trim()
-              if (v) void dispatch($, { type: 'retype', text: v })
+              void dispatch($, { type: 'retype', text: value })
             }}
           />
         </Box>

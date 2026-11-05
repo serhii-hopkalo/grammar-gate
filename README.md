@@ -55,13 +55,13 @@ The check is bounded at 30 seconds. A failure opens the pane with "Check failed"
 
 ### The retype check
 
-A sentence typed in the retype box also goes to Jev, TypeSafe's decision model, at the same time as the `claude -p` check. Jev answers in about 0.2 seconds, against about 2.5 seconds for `claude -p`, but it returns only the probability that the sentence has an error and cannot write a correction. When that probability is 0.3 or lower, the pane closes at once. The `claude -p` check still runs, and a correction from it reopens the pane.
+Each checked message, and each sentence typed in the retype box, goes first to Jev, TypeSafe's decision model. Jev answers in about 0.2 seconds, against about 2.5 seconds for `claude -p`, but it returns only the probability that the sentence has an error and cannot write a correction. At 0.1 or lower the message counts as clean and `claude -p` does not run. Up to 0.3 the pane closes at once, and `claude -p` still runs and reopens the pane if it finds an error. Above that, or when Jev does not answer within 1 second, `claude -p` decides. On 40 test sentences, 0.1 called none of the 20 with errors clean and spared `claude -p` on 6 of the 20 without.
 
-Jev runs only when `TYPESAFE_API_KEY` is set, in Claude Code's environment or in your interactive shell, for example exported in `~/.zshrc`. The desktop app starts Claude Code without your shell's environment, so the mod reads the key once from `$SHELL -ic`. Without a key, or when the request fails, the retype check works as before. The retyped sentence is sent to `api.typesafe.ai`.
+Jev runs only when `TYPESAFE_API_KEY` is set, in Claude Code's environment or in your interactive shell, for example exported in `~/.zshrc`. The desktop app starts Claude Code without your shell's environment, so the mod reads the key once from `$SHELL -ic`. Without a key, or when the request fails, every check goes to `claude -p`. With a key, every checked message is sent to `api.typesafe.ai`.
 
 ## Requirements
 
-Claude Code with mod support, and `claude` on your `PATH`. Optional: a TypeSafe API key in `TYPESAFE_API_KEY` for the faster retype check.
+Claude Code with mod support, and `claude` on your `PATH`. Optional: a TypeSafe API key in `TYPESAFE_API_KEY` for faster checks.
 
 ## Uninstall
 

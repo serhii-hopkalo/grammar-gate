@@ -10,9 +10,11 @@ export type Verdict =
   | { kind: 'failed'; text: string }
 
 export type Event =
-  | { type: 'submit'; text: string }
+  | { type: 'submit'; text: string; isCommand: boolean }
   | { type: 'retype'; text: string }
-  | { type: 'fastAnswer'; id: number; isClean: boolean }
+  // p is Jev's probability that the message has an error, undefined when the
+  // Fast check did not answer (no key, a failed request).
+  | { type: 'fastAnswer'; id: number; p: number | undefined }
   | { type: 'fullAnswer'; id: number; verdict: Verdict }
   | { type: 'dialogStart' }
   | { type: 'dialogEnd' }
@@ -25,7 +27,7 @@ export type Action =
   | { type: 'open'; focus: boolean; delayMs?: number }
   | { type: 'close' }
 
-type Current = { id: number; isFastClean: boolean; isAnswered: boolean }
+type Current = { id: number; text: string; isFastClean: boolean; isAnswered: boolean }
 
 export type State = {
   seq: number
@@ -44,6 +46,20 @@ export const DIALOG_REOPEN_MS = 300
 
 const CLEAN_TEXT = 'No changes needed.'
 
+// At or below GATE_MAX the Full check does not run. At or below EARLY_CLOSE_MAX
+// the pane closes at once, but the Full check still runs and can reopen it.
+// Measured on 40 sentences: 0.1 called no error clean, 0.3 called 2 of 20 clean.
+export const GATE_MAX = 0.1
+export const EARLY_CLOSE_MAX = 0.3
+
+export const MAX_LENGTH = 4000
+const SKIP = /^(skip|yes|yeah|yep|no|nope|ok|okay|k|go|continue|next|stop|sure|thanks|thx|ty|y|n)[.!]?$/i
+
+// Commands, shell escapes, short replies, long pastes and an empty retype are
+// not prose to check.
+export const isSkipped = (text: string, isCommand = false) =>
+  isCommand || !text || text.startsWith('!') || SKIP.test(text) || text.length > MAX_LENGTH
+
 type Result = { state: State; actions: Action[] }
 
 const setGate = (s: State, patch: Partial<Entry>): State => ({
@@ -60,26 +76,43 @@ export function step(s: State, e: Event): Result {
   switch (e.type) {
     case 'submit':
     case 'retype': {
-      const you: Entry = { id: s.seq + 1, role: 'you', text: e.text }
+      const text = e.text.trim()
+      if (isSkipped(text, e.type === 'submit' && e.isCommand)) {
+        // A skipped message still ends the previous Check and its correction.
+        if (!s.current && s.log.length === 0) return { state: s, actions: [] }
+        return {
+          state: { ...s, log: [], current: undefined, pending: undefined },
+          actions: [{ type: 'writeLog', log: [] }, { type: 'close' }],
+        }
+      }
+      const you: Entry = { id: s.seq + 1, role: 'you', text }
       const gate: Entry = { id: s.seq + 2, role: 'gate', text: 'Checking…', status: 'checking' }
       const log = [you, gate]
-      const actions: Action[] = [{ type: 'writeLog', log }, { type: 'runFull', id: gate.id, text: e.text }]
-      // Only a retype gets the fast check: it answers well before claude -p.
-      if (e.type === 'retype') actions.push({ type: 'runFast', id: gate.id, text: e.text })
       return {
-        state: { ...s, seq: gate.id, log, current: { id: gate.id, isFastClean: false, isAnswered: false } },
-        actions,
+        state: {
+          ...s,
+          seq: gate.id,
+          log,
+          current: { id: gate.id, text, isFastClean: false, isAnswered: false },
+        },
+        // The Fast check answers in about 0.2s, and decides whether the Full check runs.
+        actions: [{ type: 'writeLog', log }, { type: 'runFast', id: gate.id, text }],
       }
     }
 
     case 'fastAnswer': {
       const c = s.current
-      if (!c || c.id !== e.id || c.isAnswered || !e.isClean) return { state: s, actions: [] }
-      const next = setGate({ ...s, current: { ...c, isFastClean: true }, pending: undefined }, {
-        text: CLEAN_TEXT,
-        status: 'clean',
-      })
-      return { state: next, actions: [{ type: 'writeLog', log: next.log }, { type: 'close' }] }
+      if (!c || c.id !== e.id || c.isAnswered) return { state: s, actions: [] }
+      const runFull: Action = { type: 'runFull', id: c.id, text: c.text }
+      if (e.p === undefined || e.p > EARLY_CLOSE_MAX) return { state: s, actions: [runFull] }
+      const isGated = e.p <= GATE_MAX
+      const next = setGate(
+        { ...s, current: { ...c, isFastClean: true, isAnswered: isGated }, pending: undefined },
+        { text: CLEAN_TEXT, status: 'clean' },
+      )
+      const actions: Action[] = [{ type: 'writeLog', log: next.log }, { type: 'close' }]
+      if (!isGated) actions.push(runFull)
+      return { state: next, actions }
     }
 
     case 'fullAnswer': {
