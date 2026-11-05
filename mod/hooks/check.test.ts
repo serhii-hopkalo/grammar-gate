@@ -73,3 +73,11 @@ test('a fix shown before a dialog is not restored after it', () => {
   )
   expect(r2.actions).toEqual([])
 })
+
+test('/grammar focuses the pane only when a correction is showing', () => {
+  expect(run([{ type: 'manualOpen' }]).actions).toEqual([{ type: 'open', focus: false }])
+  const r1 = run([{ type: 'submit', text: 'he go' }])
+  const id = r1.state.current!.id
+  const r2 = run([{ type: 'fullAnswer', id, verdict: { kind: 'fix', body: 'he **goes**' } }, { type: 'manualOpen' }], r1.state)
+  expect(r2.actions).toEqual([{ type: 'open', focus: true }])
+})

@@ -114,7 +114,9 @@ export function step(s: State, e: Event): Result {
       return { state: next, actions: [{ type: 'open', focus: s.pending.focus, delayMs: DIALOG_REOPEN_MS }] }
     }
 
+    // Focus only helps when there is a correction to retype. Otherwise the
+    // next prompt would land in the retype box.
     case 'manualOpen':
-      return show(s, false)
+      return show(s, s.log.some(x => x.status === 'fix'))
   }
 }

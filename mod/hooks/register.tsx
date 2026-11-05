@@ -234,7 +234,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Input } = $.ui.resolve(e)
+    const { Box, Text, Input, Button } = $.ui.resolve(e)
     const list = await read($, log)
     const room = Math.max(2, (e.viewport?.rows ?? 30) - 6)
 
@@ -278,6 +278,9 @@ export const register: Register = on => {
               if (v) void dispatch($, { type: 'retype', text: v })
             }}
           />
+        </Box>
+        <Box marginTop={1}>
+          <Button role="dismiss" onPress={() => void $.ui.close({ id: PANE })}>Close</Button>
         </Box>
       </Box>
     )
