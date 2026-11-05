@@ -63,6 +63,64 @@ async function rulesFor($: EngineInterface, text: string): Promise<string> {
   return ukRules
 }
 
+// A retyped sentence also goes to Jev, which answers well before claude -p.
+// Jev returns only the probability of an error, so it can close the pane on a
+// clearly clean retype but never write a correction.
+const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
+const JEV_CLEAN_MAX = 0.3
+const HAS_ERROR = {
+  type: 'noul',
+  instructions:
+    'Does `message`, typed by a user to a coding assistant, contain a grammar or spelling error?',
+  criteria: {
+    true: 'A real error: subject-verb agreement, tense, articles, prepositions, word order, a misspelled or doubled-letter word, or unnatural phrasing a fluent speaker would not use.',
+    false:
+      "Correct as typed. Lowercase, a missing final period, terse fragments, informal register, technical shorthand, a lowercase word after a question mark, and full forms such as 'will not' are not errors.",
+  },
+}
+
+let typesafeKey: Promise<string | undefined> | undefined
+
+// The desktop app starts Claude Code without the login shell's environment,
+// so a key exported in ~/.zshrc is read once from an interactive shell.
+function jevKey($: EngineInterface) {
+  return (typesafeKey ??= (async () => {
+    const key = await $.env.get('TYPESAFE_API_KEY')
+    if (key) return key
+    try {
+      const shell = (await $.env.get('SHELL')) ?? '/bin/zsh'
+      const r = await $.process.run([shell, '-ic', 'printenv TYPESAFE_API_KEY'], { timeoutMs: 5000 })
+      const line = r.stdout.trim().split('\n').pop()?.trim()
+      return r.exitCode === 0 && line ? line : undefined
+    } catch {
+      return undefined
+    }
+  })())
+}
+
+// True only when Jev is confident the text has no error. Any failure, a
+// missing key included, answers false and leaves the verdict to claude -p.
+async function isClearlyClean($: EngineInterface, text: string) {
+  const key = await jevKey($)
+  if (!key) return false
+  try {
+    const r = await $.http.fetch(JEV_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'jev-latest',
+        state: { message: text },
+        questions: { has_error: HAS_ERROR },
+      }),
+    })
+    if (!r.ok) return false
+    const p = JSON.parse(r.text)?.answers?.has_error?.noul
+    return typeof p === 'number' && p <= JEV_CLEAN_MAX
+  } catch {
+    return false
+  }
+}
+
 const norm = (s: string) =>
   s.replace(/\*\*/g, '').toLowerCase().trim().replace(/[\s.?!…]+$/, '').replace(/\s+/g, ' ')
 
@@ -80,7 +138,7 @@ const isTrivial = (body: string, original: string) => {
 // Runs the check and shows its verdict. The prompt itself is never held.
 // The pane opens only for a correction or a failure and closes on a clean
 // verdict, which also hands the keyboard back to the prompt.
-async function check($: EngineInterface, text: string) {
+async function check($: EngineInterface, text: string, isRetype = false) {
   const you: Entry = { id: ++seq, role: 'you', text }
   const gate: Entry = { id: ++seq, role: 'gate', text: 'Checking…', status: 'checking' }
   // Each check replaces the pane: only the latest message and its verdict show.
@@ -88,9 +146,27 @@ async function check($: EngineInterface, text: string) {
 
   const set = (patch: Partial<Entry>) =>
     update($, log, l => l.map(x => (x.id === gate.id ? { ...x, ...patch } : x)))
+  // A Jev verdict that arrives after claude -p has answered is dropped.
+  let isAnswered = false
+  // claude -p still runs after Jev closes the pane: a correction from it
+  // reopens the pane, and a failure stays silent.
+  let isJevClean = false
   const fail = async (text: string) => {
+    isAnswered = true
+    if (isJevClean) return
     await set({ text, status: 'error' })
     showPane($, false)
+  }
+
+  if (isRetype) {
+    void isClearlyClean($, text).then(async isClean => {
+      if (!isClean || isAnswered) return
+      isJevClean = true
+      await set({ text: 'No changes needed.', status: 'clean' })
+      if (isAnswered) return
+      isOpenPending = false
+      await $.ui.close({ id: PANE })
+    })
   }
 
   const system = await rulesFor($, text)
@@ -118,6 +194,7 @@ async function check($: EngineInterface, text: string) {
   } catch {
     return fail('Check failed (claude did not run).')
   }
+  isAnswered = true
   if (run.exitCode !== 0) return fail(`Check failed (exit ${run.exitCode}).`)
 
   const out = run.stdout.trim()
@@ -126,6 +203,8 @@ async function check($: EngineInterface, text: string) {
   const body = nl < 0 ? '' : out.slice(nl + 1).trim()
   if (first === 'FIX' && body && !isTrivial(body, text)) {
     await set({ text: body, status: 'fix' })
+    // Reads the key now, so it is ready before the sentence is retyped.
+    void jevKey($)
     // Granted only while the prompt is empty, so it never takes keys mid-typing.
     showPane($, true)
     return
@@ -205,7 +284,7 @@ export const register: Register = on => {
           placeholder="Retype the corrected sentence to practise"
           onSubmit={value => {
             const v = value.trim()
-            if (v) void check($, v)
+            if (v) void check($, v, true)
           }}
         />
       </Box>

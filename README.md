@@ -53,9 +53,15 @@ The check runs `claude -p --system-prompt <rules>` with `--safe-mode`, `--tools 
 
 The check is bounded at 30 seconds. A failure opens the pane with "Check failed" and never affects the message.
 
+### The retype check
+
+A sentence typed in the retype box also goes to Jev, TypeSafe's decision model, at the same time as the `claude -p` check. Jev answers in about 0.2 seconds, against about 2.5 seconds for `claude -p`, but it returns only the probability that the sentence has an error and cannot write a correction. When that probability is 0.3 or lower, the pane closes at once. The `claude -p` check still runs, and a correction from it reopens the pane.
+
+Jev runs only when `TYPESAFE_API_KEY` is set, in Claude Code's environment or in your interactive shell, for example exported in `~/.zshrc`. The desktop app starts Claude Code without your shell's environment, so the mod reads the key once from `$SHELL -ic`. Without a key, or when the request fails, the retype check works as before. The retyped sentence is sent to `api.typesafe.ai`.
+
 ## Requirements
 
-Claude Code with mod support, and `claude` on your `PATH`.
+Claude Code with mod support, and `claude` on your `PATH`. Optional: a TypeSafe API key in `TYPESAFE_API_KEY` for the faster retype check.
 
 ## Uninstall
 
