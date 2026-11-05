@@ -21,7 +21,11 @@ function showPane($: EngineInterface, focus: boolean) {
     isOpenPending = true
     return
   }
-  void $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) })
+  void $.ui.open({ id: PANE, title: 'Grammar', ...(focus ? { focus: true as const } : {}) }).then(() => {
+    // The Input's autoFocus is not honoured everywhere, so the cursor is put in
+    // the retype box by hand. Denied, harmlessly, when the pane has no keyboard.
+    if (focus) void $.ui.focus({ requestId: PANE, key: 'retype' })
+  })
 }
 let ukRules: string | undefined
 
