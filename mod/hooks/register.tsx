@@ -282,15 +282,27 @@ export const register: Register = on => {
             ),
           )}
         </Box>
-        <Input
-          key="retype"
-          autoFocus
-          placeholder="Retype the corrected sentence to practise"
-          onSubmit={value => {
-            const v = value.trim()
-            if (v) void check($, v, true)
-          }}
-        />
+        {/* The pane's focus request is the surface's to grant and may be
+            refused, so the pane says how to reach the box. */}
+        {!e.props.isFocused && list.some(x => x.status === 'fix') && (
+          <Text dimColor>
+            {e.surface === 'terminal' ? 'Press ctrl+x then tab to retype.' : 'Click the box below to retype.'}
+          </Text>
+        )}
+        {/* Input has no text size or width of its own, so it is made bigger by
+            rows and by a column Box as wide as the pane body, which stretches it. */}
+        <Box flexDirection="column" alignItems="stretch" width={e.props.bodyColumns}>
+          <Input
+            key="retype"
+            autoFocus
+            rows={3}
+            placeholder="Retype the corrected sentence to practise"
+            onSubmit={value => {
+              const v = value.trim()
+              if (v) void check($, v, true)
+            }}
+          />
+        </Box>
       </Box>
     )
   })

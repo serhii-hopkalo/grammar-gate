@@ -22,7 +22,7 @@ why **are** the tests failing after i **changed** the config
 
 Each check replaces the pane, so only the latest correction shows.
 
-The pane takes the keyboard only while the main prompt is empty, so it never interrupts typing. Click the pane or press ctrl+x then tab to focus it by hand, and Esc to return. `/grammar` reopens a closed pane.
+The pane takes the keyboard only while the main prompt is empty, so it never interrupts typing. When the app does not hand the pane the keyboard, the pane shows a line saying how to reach the retype box. Click the pane or press ctrl+x then tab to focus it by hand, and Esc to return. `/grammar` reopens a closed pane.
 
 ## Install
 
