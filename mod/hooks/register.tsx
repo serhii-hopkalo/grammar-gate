@@ -105,7 +105,14 @@ async function check($: EngineInterface, text: string) {
       {
         stdin: text,
         timeoutMs: 30000,
-        env: { GRAMMAR_GATE_CHILD: '1', MAX_THINKING_TOKENS: '0', CLAUDE_CODE_DISABLE_ADVISOR_TOOL: '1' },
+        // Without CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC the child waits ~2.5s
+        // on a second API call after the answer is complete.
+        env: {
+          GRAMMAR_GATE_CHILD: '1',
+          MAX_THINKING_TOKENS: '0',
+          CLAUDE_CODE_DISABLE_ADVISOR_TOOL: '1',
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+        },
       },
     )
   } catch {
